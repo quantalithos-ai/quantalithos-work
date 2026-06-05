@@ -3,7 +3,9 @@
 use async_trait::async_trait;
 
 use crate::{RepositoryError, UnitOfWorkHandle};
-use work_contracts::{ApplicationResultRef, BacklogCommandResult, ProjectCommandResult};
+use work_contracts::{
+    ApplicationResultRef, BacklogCommandResult, ProjectCommandResult, ProjectMemberCommandResult,
+};
 
 /// Stores public command result surfaces for idempotency duplicate replay.
 #[async_trait]
@@ -30,6 +32,8 @@ pub enum StoredCommandResult {
     Project(ProjectCommandResult),
     /// Stored result for Backlog command operations.
     Backlog(BacklogCommandResult),
+    /// Stored result for ProjectMember command operations.
+    ProjectMember(ProjectMemberCommandResult),
 }
 
 impl StoredCommandResult {
@@ -53,6 +57,19 @@ impl StoredCommandResult {
     ) -> Option<BacklogCommandResult> {
         match self {
             Self::Backlog(result) if result.receipt.result_ref.operation == *operation => {
+                Some(result)
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns the stored member result when the operation expects it.
+    pub fn into_project_member_result(
+        self,
+        operation: &core_contracts::metadata::OperationName,
+    ) -> Option<ProjectMemberCommandResult> {
+        match self {
+            Self::ProjectMember(result) if result.receipt.result_ref.operation == *operation => {
                 Some(result)
             }
             _ => None,

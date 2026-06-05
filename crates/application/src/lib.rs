@@ -2,6 +2,7 @@
 
 mod errors;
 mod idempotency;
+mod member;
 mod ports;
 mod project;
 mod results;
@@ -12,9 +13,11 @@ pub use idempotency::{
     IdempotencyConflict, IdempotencyError, IdempotencyRecord, IdempotencyRepository,
     IdempotencyReservation, IdempotencyStatus, RequestDigest,
 };
+pub use member::ProjectMemberCommandService;
 pub use ports::{
-    AuditRepository, BacklogRepository, ClockPort, IdGeneratorPort, Page, PageInfo, PortError,
-    ProjectRepository, ProjectionRepository, RepositoryError, WorkOutboxRepository,
+    AuditRepository, BacklogRepository, ClockPort, IdGeneratorPort, MemberCapabilitySnapshotInput,
+    MemberReferencePort, Page, PageInfo, PortError, ProjectMemberRepository, ProjectRepository,
+    ProjectionRepository, ReferenceSnapshotRepository, RepositoryError, WorkOutboxRepository,
 };
 pub use project::ProjectCommandService;
 pub use results::{CommandResultRepository, StoredCommandResult};

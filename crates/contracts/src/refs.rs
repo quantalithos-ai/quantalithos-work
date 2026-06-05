@@ -56,6 +56,8 @@ string_newtype!(
 pub enum DerivedWorkViewKind {
     /// Project board projection.
     ProjectBoard,
+    /// Project-member work projection.
+    MemberWork,
 }
 
 /// References a Work-owned project subject across APIs and events.
@@ -84,6 +86,8 @@ pub struct BacklogRef {
 pub enum DerivedWorkViewScopeRef {
     /// Project-scoped view.
     Project(ProjectRef),
+    /// Project-member-scoped view.
+    ProjectMember(ProjectMemberRef),
 }
 
 /// Stable reference to one derived Work view freshness marker.
@@ -101,6 +105,14 @@ impl DerivedWorkViewRef {
         Self {
             view_kind: DerivedWorkViewKind::ProjectBoard,
             scope_ref: DerivedWorkViewScopeRef::Project(project_ref),
+        }
+    }
+
+    /// Builds the member work derived view ref for one project member.
+    pub fn member_work(project_member_ref: ProjectMemberRef) -> Self {
+        Self {
+            view_kind: DerivedWorkViewKind::MemberWork,
+            scope_ref: DerivedWorkViewScopeRef::ProjectMember(project_member_ref),
         }
     }
 }

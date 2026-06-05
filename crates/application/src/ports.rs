@@ -6,10 +6,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::UnitOfWorkHandle;
 use work_contracts::{
-    BacklogRef, DerivedWorkViewRef, OutboxFailureReason, OutboxPublicationRef, OutboxRetryReason,
-    ProjectOwnerRef, ProjectRef, WorkAuditSubjectRef, WorkOutboxId, WorkTruthCursor,
+    BacklogRef, DerivedWorkViewRef, GlobalMemberRef, OutboxFailureReason, OutboxPublicationRef,
+    OutboxRetryReason, ProjectMemberId, ProjectMemberRef, ProjectOwnerRef, ProjectRef,
+    WorkAuditSubjectRef, WorkOutboxId, WorkTruthCursor,
 };
-use work_domain::{Backlog, TraceHandoffMarker, WorkAuditTrail, WorkOutboxRecord, WorkTraceRecord};
+use work_domain::{
+    Backlog, MemberCapabilitySnapshot, ProjectMember, TraceHandoffMarker, WorkAuditTrail,
+    WorkOutboxRecord, WorkTraceRecord,
+};
 
 /// A repository page returned before public query mapping.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -53,6 +57,15 @@ pub enum PortError {
     Unavailable,
     /// The external dependency returned an invalid or unsupported response.
     InvalidResponse,
+}
+
+/// Safe resolver input used to build a member capability snapshot.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct MemberCapabilitySnapshotInput {
+    /// Referenced identity member.
+    pub member_ref: GlobalMemberRef,
+    /// Safe capability references returned by the identity boundary.
+    pub capability_refs: work_contracts::CapabilityRefSet,
 }
 
 /// Stores Work-owned project truth.
@@ -117,6 +130,63 @@ pub trait BacklogRepository: Send + Sync {
         &self,
         backlog: Backlog,
         expected_version: Version,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError>;
+}
+
+/// Stores project-local member responsibility truth.
+#[async_trait]
+pub trait ProjectMemberRepository: Send + Sync {
+    /// Loads one project member responsibility by Work identity.
+    async fn get(
+        &self,
+        member_ref: ProjectMemberRef,
+    ) -> Result<Option<ProjectMember>, RepositoryError>;
+
+    /// Loads one project-scoped responsibility for the identity member.
+    async fn get_by_member(
+        &self,
+        project_ref: ProjectRef,
+        member_ref: GlobalMemberRef,
+    ) -> Result<Option<ProjectMember>, RepositoryError>;
+
+    /// Lists project-scoped member responsibilities.
+    async fn list_by_project(
+        &self,
+        project_ref: ProjectRef,
+        page: PageRequest,
+    ) -> Result<Page<ProjectMember>, RepositoryError>;
+
+    /// Creates one project member responsibility in the current unit of work.
+    async fn create(
+        &self,
+        project_member: ProjectMember,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError>;
+
+    /// Saves one project member responsibility in the current unit of work.
+    async fn save(
+        &self,
+        project_member: ProjectMember,
+        expected_version: Version,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError>;
+}
+
+/// Stores local member snapshots needed by member command flows.
+#[async_trait]
+pub trait ReferenceSnapshotRepository: Send + Sync {
+    /// Loads one cached member capability snapshot.
+    async fn get_member_snapshot(
+        &self,
+        member_ref: GlobalMemberRef,
+    ) -> Result<Option<MemberCapabilitySnapshot>, RepositoryError>;
+
+    /// Saves one member capability snapshot in the current unit of work.
+    async fn save_member_snapshot(
+        &self,
+        snapshot: MemberCapabilitySnapshot,
+        expected_version: Option<Version>,
         uow: &UnitOfWorkHandle,
     ) -> Result<Version, RepositoryError>;
 }
@@ -215,6 +285,16 @@ pub trait ProjectionRepository: Send + Sync {
     ) -> Result<(), RepositoryError>;
 }
 
+/// Resolves member capability summaries from the identity boundary.
+#[async_trait]
+pub trait MemberReferencePort: Send + Sync {
+    /// Resolves safe capability input for one identity member.
+    async fn resolve_member_capability(
+        &self,
+        member_ref: GlobalMemberRef,
+    ) -> Result<MemberCapabilitySnapshotInput, PortError>;
+}
+
 /// Generates Work-owned identifiers.
 pub trait IdGeneratorPort: Send + Sync {
     /// Generates a project id.
@@ -222,6 +302,9 @@ pub trait IdGeneratorPort: Send + Sync {
 
     /// Generates a backlog id.
     fn next_backlog_id(&self) -> Result<work_contracts::BacklogId, PortError>;
+
+    /// Generates a project member id.
+    fn next_project_member_id(&self) -> Result<ProjectMemberId, PortError>;
 
     /// Generates a result id.
     fn next_result_id(&self) -> Result<work_contracts::ResultId, PortError>;

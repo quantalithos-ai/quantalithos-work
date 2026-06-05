@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use core_contracts::metadata::Timestamp;
 use work_application::{ClockPort, IdGeneratorPort, PortError};
-use work_contracts::{BacklogId, ProjectId, ResultId, WorkOutboxId, WorkTraceId};
+use work_contracts::{BacklogId, ProjectId, ProjectMemberId, ResultId, WorkOutboxId, WorkTraceId};
 
 /// Deterministic id generator for P0 fake adapters and tests.
 #[derive(Clone, Default)]
@@ -16,6 +16,7 @@ pub struct DeterministicWorkIdGenerator {
 struct Counters {
     project: u64,
     backlog: u64,
+    project_member: u64,
     result: u64,
     outbox: u64,
     trace: u64,
@@ -39,6 +40,15 @@ impl IdGeneratorPort for DeterministicWorkIdGenerator {
         let mut counters = self.counters.lock().map_err(|_| PortError::Unavailable)?;
         counters.backlog += 1;
         Ok(BacklogId(format!("backlog-{}", counters.backlog)))
+    }
+
+    fn next_project_member_id(&self) -> Result<ProjectMemberId, PortError> {
+        let mut counters = self.counters.lock().map_err(|_| PortError::Unavailable)?;
+        counters.project_member += 1;
+        Ok(ProjectMemberId(format!(
+            "project-member-{}",
+            counters.project_member
+        )))
     }
 
     fn next_result_id(&self) -> Result<ResultId, PortError> {

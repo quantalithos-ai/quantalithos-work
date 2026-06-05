@@ -7,6 +7,7 @@ pub mod idempotency_store;
 pub mod outbox_store;
 pub mod repositories;
 pub mod runtime_builder;
+pub mod source_resolvers;
 
 use core_contracts as _;
 use work_application as _;
