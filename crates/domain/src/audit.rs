@@ -95,6 +95,9 @@ impl WorkAuditTrail {
             WorkAuditSubjectRef::Backlog(backlog_ref) => {
                 WorkAuditTrailId(format!("audit:backlog:{backlog_ref:?}"))
             }
+            WorkAuditSubjectRef::ProjectMember(project_member_ref) => {
+                WorkAuditTrailId(format!("audit:project_member:{project_member_ref:?}"))
+            }
         };
 
         Self {
@@ -111,6 +114,9 @@ impl WorkAuditTrail {
         let subject_matches = match (&self.subject_ref, &record.subject_ref) {
             (WorkAuditSubjectRef::Project(lhs), WorkTraceSubjectRef::Project(rhs)) => lhs == rhs,
             (WorkAuditSubjectRef::Backlog(lhs), WorkTraceSubjectRef::Backlog(rhs)) => lhs == rhs,
+            (WorkAuditSubjectRef::ProjectMember(lhs), WorkTraceSubjectRef::ProjectMember(rhs)) => {
+                lhs == rhs
+            }
             _ => false,
         };
 

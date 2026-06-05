@@ -4,8 +4,8 @@ use core_contracts::actor::ActorRef;
 
 use crate::{Backlog, DomainError, Project};
 use work_contracts::{
-    BacklogAvailabilityTarget, BacklogMaintenanceReason, ProjectLifecycleReason,
-    ProjectLifecycleTarget,
+    BacklogAvailabilityTarget, BacklogMaintenanceReason, GlobalMemberRef, ProjectLifecycleReason,
+    ProjectLifecycleTarget, ProjectResponsibilitySpec,
 };
 
 /// Guards project lifecycle transitions.
@@ -28,6 +28,30 @@ impl ProjectLifecyclePolicy {
             }
             _ => Err(DomainError::InvalidStateTransition),
         }
+    }
+}
+
+/// Guards project member responsibility admission.
+pub struct MemberResponsibilityPolicy;
+
+impl MemberResponsibilityPolicy {
+    /// Validates that one responsibility spec is structurally assignable.
+    pub fn assert_can_assign(
+        member_ref: GlobalMemberRef,
+        spec: ProjectResponsibilitySpec,
+    ) -> Result<(), DomainError> {
+        if member_ref.0.trim().is_empty() {
+            return Err(DomainError::MissingRequiredValue);
+        }
+        if spec
+            .required_capability_refs
+            .refs
+            .iter()
+            .any(|capability| capability.0.trim().is_empty())
+        {
+            return Err(DomainError::PolicyRejected);
+        }
+        Ok(())
     }
 }
 

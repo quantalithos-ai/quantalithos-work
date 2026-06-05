@@ -9,13 +9,14 @@ use core_contracts::{
 };
 
 use crate::{
-    commands::ProjectSpec,
+    commands::{ProjectResponsibilitySpec, ProjectSpec},
     handoff::{ApplicationResultRef, WorkTraceContextRef},
     refs::{
-        BacklogId, BacklogRef, ExternalSourceRef, ExternalSourceSystem, ProjectId,
-        ProjectOwnerKind, ProjectOwnerRef, ProjectRef, ResultId, SafeSummaryText, TraceHandoffRef,
-        WorkAuditSubjectRef, WorkAuditTrailId, WorkOutboxId, WorkTraceId, WorkTraceRecordRefSet,
-        WorkTraceSubjectRef, WorkTruthChange,
+        BacklogId, BacklogRef, CapabilityRef, CapabilityRefSet, ExternalSourceRef,
+        ExternalSourceSystem, GlobalMemberRef, ProjectId, ProjectMemberId, ProjectMemberRef,
+        ProjectOwnerKind, ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind, ResultId,
+        SafeSummaryText, TraceHandoffRef, WorkAuditSubjectRef, WorkAuditTrailId, WorkOutboxId,
+        WorkTraceId, WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange,
     },
 };
 
@@ -91,6 +92,38 @@ pub mod fixtures {
         }
     }
 
+    /// Returns a deterministic project member id.
+    pub fn project_member_id() -> ProjectMemberId {
+        ProjectMemberId("project-member-1".to_owned())
+    }
+
+    /// Returns a deterministic project member ref.
+    pub fn project_member_ref() -> ProjectMemberRef {
+        ProjectMemberRef {
+            project_member_id: project_member_id(),
+        }
+    }
+
+    /// Returns a deterministic global member ref.
+    pub fn global_member_ref() -> GlobalMemberRef {
+        GlobalMemberRef("global-member-1".to_owned())
+    }
+
+    /// Returns a deterministic capability ref set.
+    pub fn capability_ref_set() -> CapabilityRefSet {
+        CapabilityRefSet {
+            refs: vec![CapabilityRef("capability.assign".to_owned())],
+        }
+    }
+
+    /// Returns a deterministic project responsibility spec.
+    pub fn responsibility_spec() -> ProjectResponsibilitySpec {
+        ProjectResponsibilitySpec {
+            responsibility_kind: ProjectResponsibilityKind::Contributor,
+            required_capability_refs: capability_ref_set(),
+        }
+    }
+
     /// Returns a deterministic backlog id.
     pub fn backlog_id() -> BacklogId {
         BacklogId("backlog-1".to_owned())
@@ -156,6 +189,11 @@ pub mod fixtures {
     /// Returns a deterministic backlog-availability change.
     pub fn backlog_changed_change() -> WorkTruthChange {
         WorkTruthChange::BacklogAvailabilityChanged(backlog_ref())
+    }
+
+    /// Returns a deterministic project-member change.
+    pub fn project_member_changed_change() -> WorkTruthChange {
+        WorkTruthChange::ProjectMemberChanged(project_member_ref())
     }
 
     /// Returns a deterministic trace context ref.

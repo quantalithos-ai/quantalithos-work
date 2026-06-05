@@ -7,21 +7,24 @@ mod project;
 
 pub use audit::{TraceHandoffMarker, WorkAuditTrail, WorkOutboxRecord, WorkTraceRecord};
 pub use errors::DomainError;
-pub use policies::{BacklogAvailabilityPolicy, ProjectLifecyclePolicy};
-pub use project::{Backlog, Project};
+pub use policies::{BacklogAvailabilityPolicy, MemberResponsibilityPolicy, ProjectLifecyclePolicy};
+pub use project::{
+    Backlog, MemberCapabilitySnapshot, Project, ProjectMember, ReferenceResolutionState,
+};
 
 #[cfg(test)]
 mod tests {
     use core_contracts::actor::{ActorKind, ActorRef};
 
     use crate::{
-        Backlog, DomainError, Project, TraceHandoffMarker, WorkAuditTrail, WorkOutboxRecord,
-        WorkTraceRecord,
+        Backlog, DomainError, MemberCapabilitySnapshot, Project, ProjectMember, TraceHandoffMarker,
+        WorkAuditTrail, WorkOutboxRecord, WorkTraceRecord,
     };
     use work_contracts::{
         BacklogAvailabilityTarget, BacklogMaintenanceReason, BacklogMaintenanceReasonKind,
         OutboxPublicationState, ProjectLifecycleReason, ProjectLifecycleReasonKind,
-        ProjectLifecycleState, ProjectLifecycleTarget, TraceHandoffTargetKind,
+        ProjectLifecycleState, ProjectLifecycleTarget, ProjectMemberReason,
+        ProjectMemberReasonKind, ProjectMemberResponsibilityState, TraceHandoffTargetKind,
         TraceHandoffTargetRef, WorkAuditSubjectRef, WorkOutboxEventKind, WorkTraceSubjectRef,
         fixtures,
     };
@@ -153,6 +156,101 @@ mod tests {
     }
 
     #[test]
+    fn project_member_responsibility_transitions_follow_matrix() {
+        let actor = actor();
+        let mut project_member = ProjectMember::assign(
+            fixtures::project_member_id(),
+            fixtures::project_id(),
+            fixtures::global_member_ref(),
+            fixtures::responsibility_spec(),
+        )
+        .expect("assign should create proposed responsibility");
+        assert_eq!(
+            project_member.responsibility_state,
+            ProjectMemberResponsibilityState::Proposed
+        );
+
+        let snapshot = MemberCapabilitySnapshot::from_identity(
+            fixtures::global_member_ref(),
+            fixtures::capability_ref_set(),
+        )
+        .expect("snapshot should build");
+
+        project_member
+            .activate(snapshot.clone(), actor.clone())
+            .expect("proposed -> active should succeed");
+        assert_eq!(
+            project_member.responsibility_state,
+            ProjectMemberResponsibilityState::Active
+        );
+
+        project_member
+            .pause(
+                ProjectMemberReason {
+                    reason_kind: ProjectMemberReasonKind::Paused,
+                    reason_ref: None,
+                },
+                actor.clone(),
+            )
+            .expect("active -> paused should succeed");
+        assert_eq!(
+            project_member.responsibility_state,
+            ProjectMemberResponsibilityState::Paused
+        );
+
+        project_member
+            .resume(snapshot, actor.clone())
+            .expect("paused -> active should succeed");
+        assert_eq!(
+            project_member.responsibility_state,
+            ProjectMemberResponsibilityState::Active
+        );
+
+        project_member
+            .release(
+                ProjectMemberReason {
+                    reason_kind: ProjectMemberReasonKind::Released,
+                    reason_ref: None,
+                },
+                actor.clone(),
+            )
+            .expect("active -> released should succeed");
+        assert_eq!(
+            project_member.responsibility_state,
+            ProjectMemberResponsibilityState::Released
+        );
+
+        let err = project_member
+            .resume(
+                MemberCapabilitySnapshot::from_identity(
+                    fixtures::global_member_ref(),
+                    fixtures::capability_ref_set(),
+                )
+                .expect("snapshot should build"),
+                actor,
+            )
+            .expect_err("released responsibility must remain terminal");
+        assert_eq!(err, DomainError::InvalidStateTransition);
+    }
+
+    #[test]
+    fn member_capability_snapshot_must_match_required_capabilities() {
+        let snapshot = MemberCapabilitySnapshot::from_identity(
+            fixtures::global_member_ref(),
+            fixtures::capability_ref_set(),
+        )
+        .expect("snapshot should build");
+        assert!(snapshot.supports(&fixtures::responsibility_spec()));
+
+        let insufficient = MemberCapabilitySnapshot::from_identity(
+            fixtures::global_member_ref(),
+            work_contracts::CapabilityRefSet { refs: Vec::new() },
+        )
+        .expect("snapshot should build");
+        assert!(!insufficient.supports(&fixtures::responsibility_spec()));
+    }
+
+    #[test]
     fn domain_audit_outbox_records_follow_truth_change() {
         let trace = WorkTraceRecord::from_truth_change(
             fixtures::trace_id(),
@@ -204,6 +302,27 @@ mod tests {
         assert_eq!(
             backlog_outbox.event_kind,
             WorkOutboxEventKind::BacklogChanged
+        );
+
+        let member_trace = WorkTraceRecord::from_truth_change(
+            fixtures::trace_id(),
+            fixtures::project_member_changed_change(),
+            fixtures::trace_context_ref(),
+        )
+        .expect("member trace should succeed");
+        assert_eq!(
+            member_trace.subject_ref,
+            WorkTraceSubjectRef::ProjectMember(fixtures::project_member_ref())
+        );
+
+        let member_outbox = WorkOutboxRecord::from_truth_change(
+            fixtures::outbox_id(),
+            fixtures::project_member_changed_change(),
+        )
+        .expect("member outbox should succeed");
+        assert_eq!(
+            member_outbox.event_kind,
+            WorkOutboxEventKind::ProjectMemberChanged
         );
     }
 }

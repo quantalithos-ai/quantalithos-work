@@ -16,6 +16,20 @@ pub enum ProjectLifecycleState {
     Archived,
 }
 
+/// Responsibility state for a member inside one Work project.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectMemberResponsibilityState {
+    /// The responsibility has been proposed but is not yet active.
+    Proposed,
+    /// The member can currently take project work.
+    Active,
+    /// The member responsibility is temporarily paused.
+    Paused,
+    /// The member responsibility has been released.
+    Released,
+}
+
 /// Availability state for a project's formal backlog.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -8,27 +8,30 @@ pub mod refs;
 pub mod states;
 
 pub use commands::{
-    BacklogCommandResult, CreateProjectRequest, IdempotencyResultView, ProjectCommandResult,
-    ProjectSpec, UpdateBacklogAvailabilityRequest, UpdateProjectLifecycleRequest,
-    WorkCommandEnvelope,
+    AssignProjectMemberRequest, BacklogCommandResult, CreateProjectRequest, IdempotencyResultView,
+    ProjectCommandResult, ProjectMemberCommandResult, ProjectResponsibilitySpec, ProjectSpec,
+    UpdateBacklogAvailabilityRequest, UpdateProjectLifecycleRequest,
+    UpdateProjectMemberResponsibilityRequest, WorkCommandEnvelope,
 };
 pub use errors::WorkProtocolError;
 pub use handoff::{ApplicationResultRef, WorkCommandReceipt, WorkTraceContextRef};
 pub use metadata::fixtures;
 pub use refs::{
     ArchiveHandoffRef, BacklogId, BacklogMaintenanceReason, BacklogMaintenanceReasonKind,
-    BacklogRef, DerivedWorkViewKind, DerivedWorkViewRef, DerivedWorkViewScopeRef,
-    ExternalEvidenceRef, ExternalSourceRef, ExternalSourceSystem, OutboxFailureReason,
-    OutboxFailureReasonKind, OutboxPublicationRef, OutboxRetryReason, ProjectId,
-    ProjectLifecycleReason, ProjectLifecycleReasonKind, ProjectLifecycleTarget, ProjectOwnerKind,
-    ProjectOwnerRef, ProjectRef, ResultId, SafeSummaryText, SourceDigest, SourceWorkKind,
-    SourceWorkRef, TraceHandoffIntent, TraceHandoffRef, TraceHandoffTargetKind,
-    TraceHandoffTargetRef, WorkAuditSubjectRef, WorkAuditTrailId, WorkOutboxEventKind,
-    WorkOutboxId, WorkTraceId, WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange,
-    WorkTruthCursor,
+    BacklogRef, CapabilityRef, CapabilityRefSet, DerivedWorkViewKind, DerivedWorkViewRef,
+    DerivedWorkViewScopeRef, ExternalEvidenceRef, ExternalSourceRef, ExternalSourceSystem,
+    GlobalMemberRef, OutboxFailureReason, OutboxFailureReasonKind, OutboxPublicationRef,
+    OutboxRetryReason, ProjectId, ProjectLifecycleReason, ProjectLifecycleReasonKind,
+    ProjectLifecycleTarget, ProjectMemberId, ProjectMemberReason, ProjectMemberReasonKind,
+    ProjectMemberRef, ProjectOwnerKind, ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind,
+    ResponsibilityTarget, ResultId, SafeSummaryText, SourceDigest, SourceWorkKind, SourceWorkRef,
+    TraceHandoffIntent, TraceHandoffRef, TraceHandoffTargetKind, TraceHandoffTargetRef,
+    WorkAuditSubjectRef, WorkAuditTrailId, WorkOutboxEventKind, WorkOutboxId, WorkTraceId,
+    WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange, WorkTruthCursor,
 };
 pub use states::{
     BacklogAvailabilityTarget, BacklogState, OutboxPublicationState, ProjectLifecycleState,
+    ProjectMemberResponsibilityState,
 };
 
 #[cfg(test)]
@@ -37,17 +40,23 @@ mod tests {
     use serde::de::DeserializeOwned;
 
     use super::commands::{
-        BacklogCommandResult, CreateProjectRequest, IdempotencyResultView, ProjectCommandResult,
-        UpdateBacklogAvailabilityRequest, UpdateProjectLifecycleRequest, WorkCommandEnvelope,
+        AssignProjectMemberRequest, BacklogCommandResult, CreateProjectRequest,
+        IdempotencyResultView, ProjectCommandResult, ProjectMemberCommandResult,
+        UpdateBacklogAvailabilityRequest, UpdateProjectLifecycleRequest,
+        UpdateProjectMemberResponsibilityRequest, WorkCommandEnvelope,
     };
     use super::handoff::{WorkCommandReceipt, WorkTraceContextRef};
     use super::metadata::fixtures;
     use super::refs::{
         BacklogMaintenanceReason, BacklogMaintenanceReasonKind, ProjectLifecycleReason,
-        ProjectLifecycleReasonKind, ProjectLifecycleTarget, TraceHandoffIntent,
-        TraceHandoffTargetKind, TraceHandoffTargetRef, WorkTruthChange,
+        ProjectLifecycleReasonKind, ProjectLifecycleTarget, ProjectMemberReason,
+        ProjectMemberReasonKind, ResponsibilityTarget, TraceHandoffIntent, TraceHandoffTargetKind,
+        TraceHandoffTargetRef, WorkTruthChange,
     };
-    use super::states::{BacklogAvailabilityTarget, BacklogState, ProjectLifecycleState};
+    use super::states::{
+        BacklogAvailabilityTarget, BacklogState, ProjectLifecycleState,
+        ProjectMemberResponsibilityState,
+    };
 
     fn roundtrip<T>(value: &T)
     where
@@ -63,6 +72,11 @@ mod tests {
     fn project_and_backlog_commands_roundtrip() {
         roundtrip(&CreateProjectRequest {
             project_spec: fixtures::project_spec(),
+        });
+        roundtrip(&AssignProjectMemberRequest {
+            project_ref: fixtures::project_ref(),
+            member_ref: fixtures::global_member_ref(),
+            responsibility_spec: fixtures::responsibility_spec(),
         });
         roundtrip(&UpdateProjectLifecycleRequest {
             project_ref: fixtures::project_ref(),
@@ -82,6 +96,15 @@ mod tests {
                 reason_ref: None,
             },
             expected_version: 4,
+        });
+        roundtrip(&UpdateProjectMemberResponsibilityRequest {
+            project_member_ref: fixtures::project_member_ref(),
+            target: ResponsibilityTarget::Released,
+            reason: ProjectMemberReason {
+                reason_kind: ProjectMemberReasonKind::Released,
+                reason_ref: None,
+            },
+            expected_version: 2,
         });
     }
 
@@ -114,6 +137,17 @@ mod tests {
             backlog_state: BacklogState::Open,
             receipt,
         });
+        roundtrip(&ProjectMemberCommandResult {
+            project_member_ref: fixtures::project_member_ref(),
+            responsibility_state: ProjectMemberResponsibilityState::Active,
+            receipt: WorkCommandReceipt {
+                result_ref: fixtures::application_result_ref("assign_project_member", "result-2"),
+                idempotency: IdempotencyResultView::Applied,
+                trace_ref: Some(fixtures::trace_id()),
+                outbox_record_refs: vec![fixtures::outbox_id()],
+                applied_version: Some(1),
+            },
+        });
     }
 
     #[test]
@@ -128,6 +162,9 @@ mod tests {
         });
 
         roundtrip(&WorkTruthChange::ProjectCreated(fixtures::project_ref()));
+        roundtrip(&WorkTruthChange::ProjectMemberChanged(
+            fixtures::project_member_ref(),
+        ));
         roundtrip(&WorkTruthChange::BacklogAvailabilityChanged(
             fixtures::backlog_ref(),
         ));

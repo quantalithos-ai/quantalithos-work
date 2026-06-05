@@ -6,10 +6,14 @@ use core_contracts::{actor::ActorContext, metadata::CommandMetadata};
 
 use crate::handoff::WorkCommandReceipt;
 use crate::refs::{
-    BacklogMaintenanceReason, BacklogRef, ProjectLifecycleReason, ProjectLifecycleTarget,
-    ProjectOwnerRef, ProjectRef, SourceWorkRef,
+    BacklogMaintenanceReason, BacklogRef, CapabilityRefSet, GlobalMemberRef,
+    ProjectLifecycleReason, ProjectLifecycleTarget, ProjectMemberReason, ProjectMemberRef,
+    ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind, ResponsibilityTarget, SourceWorkRef,
 };
-use crate::states::{BacklogAvailabilityTarget, BacklogState, ProjectLifecycleState};
+use crate::states::{
+    BacklogAvailabilityTarget, BacklogState, ProjectLifecycleState,
+    ProjectMemberResponsibilityState,
+};
 
 /// A synchronous Work command envelope.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -29,6 +33,15 @@ pub struct ProjectSpec {
     pub owner_ref: ProjectOwnerRef,
     /// Optional external source summary ref for audit.
     pub source_ref: Option<SourceWorkRef>,
+}
+
+/// Describes a project-local member responsibility.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProjectResponsibilitySpec {
+    /// Responsibility kind expected in the project.
+    pub responsibility_kind: ProjectResponsibilityKind,
+    /// Required capability references.
+    pub required_capability_refs: CapabilityRefSet,
 }
 
 /// Requests creation of a Work-owned project subject.
@@ -61,6 +74,30 @@ pub struct UpdateBacklogAvailabilityRequest {
     /// Maintenance reason.
     pub reason: BacklogMaintenanceReason,
     /// Expected backlog version.
+    pub expected_version: core_contracts::metadata::Version,
+}
+
+/// Requests assignment of a project-local responsibility.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AssignProjectMemberRequest {
+    /// Project that owns the responsibility.
+    pub project_ref: ProjectRef,
+    /// Referenced identity member.
+    pub member_ref: GlobalMemberRef,
+    /// Responsibility specification.
+    pub responsibility_spec: ProjectResponsibilitySpec,
+}
+
+/// Requests a project member responsibility state transition.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct UpdateProjectMemberResponsibilityRequest {
+    /// Project member responsibility to update.
+    pub project_member_ref: ProjectMemberRef,
+    /// Target responsibility transition.
+    pub target: ResponsibilityTarget,
+    /// Reason for the transition.
+    pub reason: ProjectMemberReason,
+    /// Expected project member version.
     pub expected_version: core_contracts::metadata::Version,
 }
 
@@ -106,6 +143,26 @@ pub struct BacklogCommandResult {
 }
 
 impl BacklogCommandResult {
+    /// Returns a duplicate replay view while preserving the stored result surface.
+    pub fn with_duplicate_receipt(&self) -> Self {
+        let mut result = self.clone();
+        result.receipt = result.receipt.with_duplicate_overlay();
+        result
+    }
+}
+
+/// Result returned by project member commands.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProjectMemberCommandResult {
+    /// Changed project member reference.
+    pub project_member_ref: ProjectMemberRef,
+    /// Current responsibility state.
+    pub responsibility_state: ProjectMemberResponsibilityState,
+    /// Shared write receipt.
+    pub receipt: WorkCommandReceipt,
+}
+
+impl ProjectMemberCommandResult {
     /// Returns a duplicate replay view while preserving the stored result surface.
     pub fn with_duplicate_receipt(&self) -> Self {
         let mut result = self.clone();

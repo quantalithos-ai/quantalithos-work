@@ -14,7 +14,19 @@ macro_rules! string_newtype {
 }
 
 string_newtype!(ProjectId, "Identifies a Work-owned project subject.");
+string_newtype!(
+    ProjectMemberId,
+    "Identifies a project-local member responsibility."
+);
+string_newtype!(
+    GlobalMemberRef,
+    "References an identity-owned global member."
+);
 string_newtype!(BacklogId, "Identifies a Work-owned backlog.");
+string_newtype!(
+    CapabilityRef,
+    "Capability reference from identity or method policy."
+);
 string_newtype!(
     WorkTruthCursor,
     "Committed Work truth source position used by stale markers and rebuilds."
@@ -51,6 +63,13 @@ pub enum DerivedWorkViewKind {
 pub struct ProjectRef {
     /// Stable Work project id.
     pub project_id: ProjectId,
+}
+
+/// References a project-local member responsibility.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProjectMemberRef {
+    /// Stable project member responsibility id.
+    pub project_member_id: ProjectMemberId,
 }
 
 /// References a Work-owned backlog.
@@ -129,6 +148,27 @@ pub enum ProjectOwnerKind {
     Organization,
     /// External project owner.
     ExternalProject,
+}
+
+/// Project responsibility category used by Work policy.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectResponsibilityKind {
+    /// Person or agent accountable for project work.
+    Owner,
+    /// Contributor who can be assigned work.
+    Contributor,
+    /// Reviewer who can inspect or approve work.
+    Reviewer,
+    /// Observer with read-only responsibility.
+    Observer,
+}
+
+/// Capability references required by one responsibility spec.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CapabilityRefSet {
+    /// Stable capability refs only.
+    pub refs: Vec<CapabilityRef>,
 }
 
 /// Points to the external owner of a Work project without owning that body.
@@ -227,6 +267,27 @@ pub struct ProjectLifecycleReason {
     pub note: Option<SafeSummaryText>,
 }
 
+/// Target responsibility state requested for a project member.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResponsibilityTarget {
+    /// Activate or resume the responsibility.
+    Active,
+    /// Pause the responsibility.
+    Paused,
+    /// Release the responsibility.
+    Released,
+}
+
+/// Reason supplied for project member responsibility transitions.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProjectMemberReason {
+    /// Reason category.
+    pub reason_kind: ProjectMemberReasonKind,
+    /// Optional external evidence or decision reference.
+    pub reason_ref: Option<ExternalEvidenceRef>,
+}
+
 /// Project lifecycle explanation category.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -239,6 +300,20 @@ pub enum ProjectLifecycleReasonKind {
     OwnerRequest,
     /// Transition prepared for archive.
     ArchivePrepared,
+}
+
+/// Project member responsibility explanation category.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectMemberReasonKind {
+    /// Responsibility was assigned.
+    Assigned,
+    /// Identity capability changed.
+    CapabilityChanged,
+    /// Responsibility was paused.
+    Paused,
+    /// Responsibility was released.
+    Released,
 }
 
 /// Reason supplied for backlog maintenance transitions.
@@ -323,6 +398,8 @@ pub enum WorkTraceSubjectRef {
     Project(ProjectRef),
     /// Backlog subject.
     Backlog(BacklogRef),
+    /// Project member subject.
+    ProjectMember(ProjectMemberRef),
     /// Trace or archive handoff subject.
     Handoff(TraceHandoffRef),
 }
@@ -334,6 +411,8 @@ pub enum WorkAuditSubjectRef {
     Project(ProjectRef),
     /// Backlog audit subject.
     Backlog(BacklogRef),
+    /// Project member audit subject.
+    ProjectMember(ProjectMemberRef),
 }
 
 /// Set of trace records linked from an audit trail.
@@ -350,6 +429,8 @@ pub enum WorkTruthChange {
     ProjectCreated(ProjectRef),
     /// A project lifecycle changed.
     ProjectLifecycleChanged(ProjectRef),
+    /// A project member responsibility changed.
+    ProjectMemberChanged(ProjectMemberRef),
     /// A backlog availability state changed.
     BacklogAvailabilityChanged(BacklogRef),
 }
@@ -360,6 +441,9 @@ impl WorkTruthChange {
         match self {
             Self::ProjectCreated(project_ref) | Self::ProjectLifecycleChanged(project_ref) => {
                 WorkTraceSubjectRef::Project(project_ref.clone())
+            }
+            Self::ProjectMemberChanged(project_member_ref) => {
+                WorkTraceSubjectRef::ProjectMember(project_member_ref.clone())
             }
             Self::BacklogAvailabilityChanged(backlog_ref) => {
                 WorkTraceSubjectRef::Backlog(backlog_ref.clone())
@@ -373,6 +457,9 @@ impl WorkTruthChange {
             Self::ProjectCreated(project_ref) | Self::ProjectLifecycleChanged(project_ref) => {
                 WorkAuditSubjectRef::Project(project_ref.clone())
             }
+            Self::ProjectMemberChanged(project_member_ref) => {
+                WorkAuditSubjectRef::ProjectMember(project_member_ref.clone())
+            }
             Self::BacklogAvailabilityChanged(backlog_ref) => {
                 WorkAuditSubjectRef::Backlog(backlog_ref.clone())
             }
@@ -385,6 +472,7 @@ impl WorkTruthChange {
             Self::ProjectCreated(_) | Self::ProjectLifecycleChanged(_) => {
                 WorkOutboxEventKind::ProjectChanged
             }
+            Self::ProjectMemberChanged(_) => WorkOutboxEventKind::ProjectMemberChanged,
             Self::BacklogAvailabilityChanged(_) => WorkOutboxEventKind::BacklogChanged,
         }
     }

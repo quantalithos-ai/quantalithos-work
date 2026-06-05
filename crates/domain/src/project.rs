@@ -1,12 +1,18 @@
 //! Project and backlog domain objects.
 
 use core_contracts::actor::ActorRef;
+use core_contracts::metadata::Timestamp;
 
-use crate::{BacklogAvailabilityPolicy, DomainError, ProjectLifecyclePolicy};
+use crate::{
+    BacklogAvailabilityPolicy, DomainError, MemberResponsibilityPolicy, ProjectLifecyclePolicy,
+};
 use work_contracts::{
     BacklogAvailabilityTarget, BacklogId, BacklogMaintenanceReason, BacklogRef, BacklogState,
-    ProjectId, ProjectLifecycleReason, ProjectLifecycleState, ProjectLifecycleTarget,
-    ProjectOwnerRef, ProjectRef, ProjectSpec,
+    CapabilityRefSet, ExternalSourceRef, ExternalSourceSystem, GlobalMemberRef, ProjectId,
+    ProjectLifecycleReason, ProjectLifecycleState, ProjectLifecycleTarget, ProjectMemberId,
+    ProjectMemberReason, ProjectMemberReasonKind, ProjectMemberRef,
+    ProjectMemberResponsibilityState, ProjectOwnerRef, ProjectRef, ProjectResponsibilitySpec,
+    ProjectSpec,
 };
 
 /// Represents the Work-owned project subject and protects its lifecycle boundary.
@@ -28,7 +34,7 @@ impl Project {
         _actor: ActorRef,
     ) -> Result<Self, DomainError> {
         if spec.owner_ref.external_ref.external_id.trim().is_empty() {
-            return Err(DomainError::MissingField);
+            return Err(DomainError::MissingRequiredValue);
         }
 
         Ok(Self {
@@ -67,6 +73,122 @@ impl Project {
     pub fn project_ref(&self) -> ProjectRef {
         ProjectRef {
             project_id: self.project_id.clone(),
+        }
+    }
+}
+
+/// Tracks a project-local member responsibility without owning identity truth.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProjectMember {
+    /// Stable project member responsibility id.
+    pub project_member_id: ProjectMemberId,
+    /// Owning project.
+    pub project_id: ProjectId,
+    /// Referenced identity member.
+    pub member_ref: GlobalMemberRef,
+    /// Required responsibility specification.
+    pub responsibility_spec: ProjectResponsibilitySpec,
+    /// Current responsibility state.
+    pub responsibility_state: ProjectMemberResponsibilityState,
+}
+
+impl ProjectMember {
+    /// Creates a proposed project-member responsibility.
+    pub fn assign(
+        project_member_id: ProjectMemberId,
+        project_id: ProjectId,
+        member_ref: GlobalMemberRef,
+        spec: ProjectResponsibilitySpec,
+    ) -> Result<Self, DomainError> {
+        if project_member_id.0.trim().is_empty()
+            || project_id.0.trim().is_empty()
+            || member_ref.0.trim().is_empty()
+        {
+            return Err(DomainError::MissingRequiredValue);
+        }
+        MemberResponsibilityPolicy::assert_can_assign(member_ref.clone(), spec.clone())?;
+        Ok(Self {
+            project_member_id,
+            project_id,
+            member_ref,
+            responsibility_spec: spec,
+            responsibility_state: ProjectMemberResponsibilityState::Proposed,
+        })
+    }
+
+    /// Activates a proposed responsibility when the capability snapshot supports it.
+    pub fn activate(
+        &mut self,
+        snapshot: MemberCapabilitySnapshot,
+        _actor: ActorRef,
+    ) -> Result<(), DomainError> {
+        if self.responsibility_state != ProjectMemberResponsibilityState::Proposed {
+            return Err(DomainError::InvalidStateTransition);
+        }
+        if snapshot.member_ref != self.member_ref || !snapshot.supports(&self.responsibility_spec) {
+            return Err(DomainError::PolicyRejected);
+        }
+        self.responsibility_state = ProjectMemberResponsibilityState::Active;
+        Ok(())
+    }
+
+    /// Pauses an active responsibility.
+    pub fn pause(
+        &mut self,
+        reason: ProjectMemberReason,
+        _actor: ActorRef,
+    ) -> Result<(), DomainError> {
+        if self.responsibility_state != ProjectMemberResponsibilityState::Active {
+            return Err(DomainError::InvalidStateTransition);
+        }
+        if reason.reason_kind != ProjectMemberReasonKind::Paused {
+            return Err(DomainError::PolicyRejected);
+        }
+        self.responsibility_state = ProjectMemberResponsibilityState::Paused;
+        Ok(())
+    }
+
+    /// Resumes a paused responsibility when the capability snapshot supports it.
+    pub fn resume(
+        &mut self,
+        snapshot: MemberCapabilitySnapshot,
+        _actor: ActorRef,
+    ) -> Result<(), DomainError> {
+        if self.responsibility_state != ProjectMemberResponsibilityState::Paused {
+            return Err(DomainError::InvalidStateTransition);
+        }
+        if snapshot.member_ref != self.member_ref || !snapshot.supports(&self.responsibility_spec) {
+            return Err(DomainError::PolicyRejected);
+        }
+        self.responsibility_state = ProjectMemberResponsibilityState::Active;
+        Ok(())
+    }
+
+    /// Releases a proposed, active, or paused responsibility.
+    pub fn release(
+        &mut self,
+        reason: ProjectMemberReason,
+        _actor: ActorRef,
+    ) -> Result<(), DomainError> {
+        match self.responsibility_state {
+            ProjectMemberResponsibilityState::Proposed
+            | ProjectMemberResponsibilityState::Active
+            | ProjectMemberResponsibilityState::Paused => {}
+            ProjectMemberResponsibilityState::Released => {
+                return Err(DomainError::InvalidStateTransition);
+            }
+        }
+        if reason.reason_kind != ProjectMemberReasonKind::Released {
+            return Err(DomainError::PolicyRejected);
+        }
+        self.responsibility_state = ProjectMemberResponsibilityState::Released;
+        Ok(())
+    }
+
+    /// Returns the stable project-member ref.
+    pub fn project_member_ref(&self) -> ProjectMemberRef {
+        ProjectMemberRef {
+            project_member_id: self.project_member_id.clone(),
         }
     }
 }
@@ -159,5 +281,66 @@ impl Backlog {
         BacklogRef {
             backlog_id: self.backlog_id.clone(),
         }
+    }
+}
+
+/// Tracks whether an external reference is resolved, stale, or failed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReferenceResolutionState {
+    /// External reference being tracked.
+    pub reference_ref: ExternalSourceRef,
+    /// Whether the reference is currently usable.
+    pub resolved: bool,
+    /// Last successful resolution timestamp.
+    pub last_resolved_at: Option<Timestamp>,
+}
+
+impl ReferenceResolutionState {
+    /// Creates a resolved member-reference state from identity input.
+    pub fn resolved_member(member_ref: &GlobalMemberRef) -> Self {
+        Self {
+            reference_ref: ExternalSourceRef {
+                source_system: ExternalSourceSystem::Identity,
+                external_id: member_ref.0.clone(),
+            },
+            resolved: true,
+            last_resolved_at: None,
+        }
+    }
+}
+
+/// Stores a safe local summary of a member's responsibility capability.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MemberCapabilitySnapshot {
+    /// Referenced identity member.
+    pub member_ref: GlobalMemberRef,
+    /// Capability refs allowed for responsibility checks.
+    pub capability_refs: CapabilityRefSet,
+    /// Resolution state of this snapshot.
+    pub snapshot_state: ReferenceResolutionState,
+}
+
+impl MemberCapabilitySnapshot {
+    /// Builds a snapshot from safe identity capability input.
+    pub fn from_identity(
+        member_ref: GlobalMemberRef,
+        capability_refs: CapabilityRefSet,
+    ) -> Result<Self, DomainError> {
+        if member_ref.0.trim().is_empty() {
+            return Err(DomainError::MissingRequiredValue);
+        }
+        Ok(Self {
+            snapshot_state: ReferenceResolutionState::resolved_member(&member_ref),
+            member_ref,
+            capability_refs,
+        })
+    }
+
+    /// Returns whether the capability snapshot supports one responsibility spec.
+    pub fn supports(&self, spec: &ProjectResponsibilitySpec) -> bool {
+        spec.required_capability_refs
+            .refs
+            .iter()
+            .all(|required| self.capability_refs.refs.contains(required))
     }
 }
