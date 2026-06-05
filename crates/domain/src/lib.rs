@@ -7,9 +7,13 @@ mod project;
 
 pub use audit::{TraceHandoffMarker, WorkAuditTrail, WorkOutboxRecord, WorkTraceRecord};
 pub use errors::DomainError;
-pub use policies::{BacklogAvailabilityPolicy, MemberResponsibilityPolicy, ProjectLifecyclePolicy};
+pub use policies::{
+    BacklogAvailabilityPolicy, FormalWorkPolicy, MemberResponsibilityPolicy,
+    ProjectLifecyclePolicy, WorkTruthPolicy,
+};
 pub use project::{
-    Backlog, MemberCapabilitySnapshot, Project, ProjectMember, ReferenceResolutionState,
+    Backlog, ChildWorkItem, MemberCapabilitySnapshot, Project, ProjectMember,
+    ReferenceResolutionState, WorkItem,
 };
 
 #[cfg(test)]
@@ -17,16 +21,17 @@ mod tests {
     use core_contracts::actor::{ActorKind, ActorRef};
 
     use crate::{
-        Backlog, DomainError, MemberCapabilitySnapshot, Project, ProjectMember, TraceHandoffMarker,
-        WorkAuditTrail, WorkOutboxRecord, WorkTraceRecord,
+        Backlog, ChildWorkItem, DomainError, FormalWorkPolicy, MemberCapabilitySnapshot, Project,
+        ProjectMember, TraceHandoffMarker, WorkAuditTrail, WorkItem, WorkOutboxRecord,
+        WorkTraceRecord, WorkTruthPolicy,
     };
     use work_contracts::{
         BacklogAvailabilityTarget, BacklogMaintenanceReason, BacklogMaintenanceReasonKind,
-        OutboxPublicationState, ProjectLifecycleReason, ProjectLifecycleReasonKind,
-        ProjectLifecycleState, ProjectLifecycleTarget, ProjectMemberReason,
-        ProjectMemberReasonKind, ProjectMemberResponsibilityState, TraceHandoffTargetKind,
-        TraceHandoffTargetRef, WorkAuditSubjectRef, WorkOutboxEventKind, WorkTraceSubjectRef,
-        fixtures,
+        ExternalSourceSummary, OutboxPublicationState, ProjectLifecycleReason,
+        ProjectLifecycleReasonKind, ProjectLifecycleState, ProjectLifecycleTarget,
+        ProjectMemberReason, ProjectMemberReasonKind, ProjectMemberResponsibilityState,
+        TraceHandoffTargetKind, TraceHandoffTargetRef, WorkAuditSubjectRef, WorkLifecycleTarget,
+        WorkOutboxEventKind, WorkTraceSubjectRef, WorkTruthChange, fixtures,
     };
 
     fn actor() -> ActorRef {
@@ -251,6 +256,218 @@ mod tests {
     }
 
     #[test]
+    fn formal_work_item_create_and_complete_follow_matrix() {
+        let actor = actor();
+        let backlog = Backlog::open_for_project(
+            fixtures::backlog_id(),
+            fixtures::project_id(),
+            actor.clone(),
+        )
+        .expect("backlog open should succeed");
+        backlog
+            .assert_can_accept(&fixtures::formal_work_intent())
+            .expect("open backlog should accept valid formal intent");
+
+        let mut work = WorkItem::formalize(
+            fixtures::work_item_id(),
+            fixtures::backlog_id(),
+            fixtures::formal_work_intent(),
+            fixtures::source_work_ref(),
+            actor.clone(),
+        )
+        .expect("formalize should succeed");
+        assert_eq!(work.formal_work_ref(), fixtures::formal_work_ref());
+        assert_eq!(work.work_state, work_contracts::WorkItemState::Formalized);
+        assert_eq!(work.completion_ref, None);
+
+        backlog
+            .accept_work_item(&work, actor.clone())
+            .expect("backlog should accept matching work item");
+
+        work.transition_lifecycle(
+            WorkLifecycleTarget::InProgress,
+            fixtures::start_work_reason(),
+            None,
+            actor.clone(),
+        )
+        .expect("formalized -> in_progress should succeed");
+        work.transition_lifecycle(
+            WorkLifecycleTarget::Completed,
+            fixtures::completion_work_reason(),
+            Some(fixtures::completion_evidence_ref()),
+            actor,
+        )
+        .expect("in_progress -> completed should succeed");
+        assert_eq!(work.work_state, work_contracts::WorkItemState::Completed);
+        assert_eq!(
+            work.completion_ref,
+            Some(fixtures::completion_evidence_ref())
+        );
+    }
+
+    #[test]
+    fn work_truth_policy_rejects_external_body_summary() {
+        let err = WorkTruthPolicy::assert_no_external_body(ExternalSourceSummary {
+            source_ref: fixtures::source_work_ref(),
+            source_kind: work_contracts::SourceWorkKind::Conversation,
+            source_digest: fixtures::source_work_ref().source_digest,
+            has_external_body: true,
+        })
+        .expect_err("external body must be rejected");
+        assert_eq!(err, DomainError::ExternalBodyRejected);
+    }
+
+    #[test]
+    fn work_truth_policy_rejects_formal_work_change_when_backlog_locked() {
+        let policy = WorkTruthPolicy {
+            policy_scope: work_contracts::WorkPolicyScope {
+                project_ref: fixtures::project_ref(),
+                work_ref: Some(fixtures::formal_work_ref()),
+                source_ref: Some(fixtures::source_work_ref()),
+            },
+            truth_snapshot: work_contracts::WorkTruthSnapshot {
+                project_ref: fixtures::project_ref(),
+                lifecycle_state: ProjectLifecycleState::Active,
+                backlog_state: Some(work_contracts::BacklogState::LockedForMaintenance),
+                source_cursor: work_contracts::WorkTruthCursor("cursor-1".to_owned()),
+            },
+        };
+
+        let err = policy
+            .assert_truth_change_allowed(
+                WorkTruthChange::WorkItemChanged(fixtures::formal_work_ref()),
+                &actor(),
+            )
+            .expect_err("locked backlog should reject formal work truth change");
+        assert_eq!(err, DomainError::PolicyRejected);
+    }
+
+    #[test]
+    fn backlog_maintenance_lock_rejects_new_formal_work() {
+        let actor = actor();
+        let mut backlog = Backlog::open_for_project(
+            fixtures::backlog_id(),
+            fixtures::project_id(),
+            actor.clone(),
+        )
+        .expect("backlog open should succeed");
+        backlog
+            .lock_for_maintenance(
+                BacklogMaintenanceReason {
+                    reason_kind: BacklogMaintenanceReasonKind::MaintenanceWindow,
+                    reason_ref: None,
+                },
+                actor,
+            )
+            .expect("lock should succeed");
+
+        let err = backlog
+            .assert_can_accept(&fixtures::formal_work_intent())
+            .expect_err("locked backlog must reject new work");
+        assert_eq!(err, DomainError::PolicyRejected);
+    }
+
+    #[test]
+    fn child_work_item_create_and_complete_follow_matrix() {
+        let actor = actor();
+        let mut child = ChildWorkItem::create_child(
+            fixtures::child_work_item_id(),
+            fixtures::work_item_id(),
+            fixtures::child_work_intent(),
+            fixtures::source_work_ref(),
+        )
+        .expect("child create should succeed");
+        assert_eq!(child.formal_work_ref(), fixtures::child_formal_work_ref());
+        assert_eq!(child.completion_ref, None);
+
+        child
+            .attach_to_parent(fixtures::work_item_id(), actor.clone())
+            .expect("same parent should succeed");
+        let err = child
+            .attach_to_parent(
+                work_contracts::WorkItemId("other-parent".to_owned()),
+                actor.clone(),
+            )
+            .expect_err("different parent should fail");
+        assert_eq!(err, DomainError::RefMismatch);
+
+        child
+            .transition_lifecycle(
+                WorkLifecycleTarget::InProgress,
+                fixtures::start_work_reason(),
+                None,
+                actor.clone(),
+            )
+            .expect("formalized child -> in_progress should succeed");
+        child
+            .transition_lifecycle(
+                WorkLifecycleTarget::Completed,
+                fixtures::completion_work_reason(),
+                Some(fixtures::completion_evidence_ref()),
+                actor,
+            )
+            .expect("child in_progress -> completed should succeed");
+        assert_eq!(child.work_state, work_contracts::WorkItemState::Completed);
+        assert_eq!(
+            child.completion_ref,
+            Some(fixtures::completion_evidence_ref())
+        );
+    }
+
+    #[test]
+    fn formal_work_policy_and_completion_guard_reject_invalid_inputs() {
+        let actor = actor();
+        let err = FormalWorkPolicy::assert_formal_work(
+            fixtures::formal_work_intent(),
+            fixtures::runtime_source_work_ref(),
+        )
+        .expect_err("runtime source must not directly formalize");
+        assert_eq!(err, DomainError::PolicyRejected);
+
+        let mut work = WorkItem::formalize(
+            fixtures::work_item_id(),
+            fixtures::backlog_id(),
+            fixtures::formal_work_intent(),
+            fixtures::source_work_ref(),
+            actor.clone(),
+        )
+        .expect("formalize should succeed");
+        work.transition_lifecycle(
+            WorkLifecycleTarget::InProgress,
+            fixtures::start_work_reason(),
+            None,
+            actor.clone(),
+        )
+        .expect("start should succeed");
+        let err = work
+            .transition_lifecycle(
+                WorkLifecycleTarget::Completed,
+                fixtures::completion_work_reason(),
+                Some(fixtures::unverified_completion_evidence_ref()),
+                actor.clone(),
+            )
+            .expect_err("unverified evidence must fail");
+        assert_eq!(err, DomainError::PolicyRejected);
+
+        let mut child = ChildWorkItem::create_child(
+            fixtures::child_work_item_id(),
+            fixtures::work_item_id(),
+            fixtures::child_work_intent(),
+            fixtures::source_work_ref(),
+        )
+        .expect("child create should succeed");
+        let err = child
+            .transition_lifecycle(
+                WorkLifecycleTarget::Completed,
+                fixtures::completion_work_reason(),
+                Some(fixtures::completion_evidence_ref()),
+                actor,
+            )
+            .expect_err("completed from formalized should fail");
+        assert_eq!(err, DomainError::InvalidStateTransition);
+    }
+
+    #[test]
     fn domain_audit_outbox_records_follow_truth_change() {
         let trace = WorkTraceRecord::from_truth_change(
             fixtures::trace_id(),
@@ -324,5 +541,30 @@ mod tests {
             member_outbox.event_kind,
             WorkOutboxEventKind::ProjectMemberChanged
         );
+
+        let work_trace = WorkTraceRecord::from_truth_change(
+            fixtures::trace_id(),
+            fixtures::work_item_changed_change(),
+            fixtures::trace_context_ref(),
+        )
+        .expect("work trace should succeed");
+        assert_eq!(
+            work_trace.subject_ref,
+            WorkTraceSubjectRef::FormalWork(fixtures::formal_work_ref())
+        );
+
+        let work_outbox = WorkOutboxRecord::from_truth_change(
+            fixtures::outbox_id(),
+            WorkTruthChange::WorkItemChanged(fixtures::formal_work_ref()),
+        )
+        .expect("work outbox should succeed");
+        assert_eq!(work_outbox.event_kind, WorkOutboxEventKind::WorkItemChanged);
+
+        let mut work_audit = WorkAuditTrail::start_for_subject(WorkAuditSubjectRef::FormalWork(
+            fixtures::formal_work_ref(),
+        ));
+        work_audit
+            .append(work_trace)
+            .expect("work audit append should succeed");
     }
 }

@@ -12,11 +12,14 @@ use crate::{
     commands::{ProjectResponsibilitySpec, ProjectSpec},
     handoff::{ApplicationResultRef, WorkTraceContextRef},
     refs::{
-        BacklogId, BacklogRef, CapabilityRef, CapabilityRefSet, ExternalSourceRef,
-        ExternalSourceSystem, GlobalMemberRef, ProjectId, ProjectMemberId, ProjectMemberRef,
-        ProjectOwnerKind, ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind, ResultId,
-        SafeSummaryText, TraceHandoffRef, WorkAuditSubjectRef, WorkAuditTrailId, WorkOutboxId,
-        WorkTraceId, WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange,
+        BacklogId, BacklogRef, CapabilityRef, CapabilityRefSet, ChildWorkItemId, EvidenceKind,
+        EvidenceVerifiedState, ExternalEvidenceRef, ExternalSourceRef, ExternalSourceSystem,
+        FormalWorkIntent, FormalWorkRef, GlobalMemberRef, IterationId, IterationRef,
+        MethodDefinitionRef, ProjectId, ProjectMemberId, ProjectMemberRef, ProjectOwnerKind,
+        ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind, ResultId, SafeSummaryText,
+        SourceDigest, SourceWorkKind, SourceWorkRef, TraceHandoffRef, WorkAuditSubjectRef,
+        WorkAuditTrailId, WorkItemId, WorkLifecycleReason, WorkLifecycleReasonKind, WorkOutboxId,
+        WorkTitle, WorkTraceId, WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange,
     },
 };
 
@@ -136,6 +139,135 @@ pub mod fixtures {
         }
     }
 
+    /// Returns a deterministic work item id.
+    pub fn work_item_id() -> WorkItemId {
+        WorkItemId("work-item-1".to_owned())
+    }
+
+    /// Returns a deterministic child work item id.
+    pub fn child_work_item_id() -> ChildWorkItemId {
+        ChildWorkItemId("child-work-item-1".to_owned())
+    }
+
+    /// Returns a deterministic formal work ref.
+    pub fn formal_work_ref() -> FormalWorkRef {
+        FormalWorkRef::WorkItem(work_item_id())
+    }
+
+    /// Returns a deterministic child formal work ref.
+    pub fn child_formal_work_ref() -> FormalWorkRef {
+        FormalWorkRef::ChildWorkItem(child_work_item_id())
+    }
+
+    /// Returns a deterministic iteration ref.
+    pub fn iteration_ref() -> IterationRef {
+        IterationRef {
+            iteration_id: IterationId("iteration-1".to_owned()),
+        }
+    }
+
+    /// Returns a deterministic work title.
+    pub fn work_title(value: &str) -> WorkTitle {
+        WorkTitle(value.to_owned())
+    }
+
+    /// Returns a deterministic method definition ref.
+    pub fn method_definition_ref() -> MethodDefinitionRef {
+        MethodDefinitionRef("method-definition-1".to_owned())
+    }
+
+    /// Returns a deterministic source work ref.
+    pub fn source_work_ref() -> SourceWorkRef {
+        SourceWorkRef {
+            source_kind: SourceWorkKind::Conversation,
+            external_ref: external_source_ref(),
+            source_digest: Some(SourceDigest("digest-1".to_owned())),
+        }
+    }
+
+    /// Returns a deterministic runtime source work ref.
+    pub fn runtime_source_work_ref() -> SourceWorkRef {
+        SourceWorkRef {
+            source_kind: SourceWorkKind::Runtime,
+            external_ref: external_source_ref(),
+            source_digest: Some(SourceDigest("runtime-digest-1".to_owned())),
+        }
+    }
+
+    /// Returns a deterministic completion evidence ref.
+    pub fn completion_evidence_ref() -> ExternalEvidenceRef {
+        ExternalEvidenceRef {
+            evidence_kind: EvidenceKind::Completion,
+            external_ref: external_source_ref(),
+            verified_state: EvidenceVerifiedState::Verified,
+        }
+    }
+
+    /// Returns a deterministic unverified completion evidence ref.
+    pub fn unverified_completion_evidence_ref() -> ExternalEvidenceRef {
+        ExternalEvidenceRef {
+            evidence_kind: EvidenceKind::Completion,
+            external_ref: external_source_ref(),
+            verified_state: EvidenceVerifiedState::Unverified,
+        }
+    }
+
+    /// Returns a deterministic formal work intent.
+    pub fn formal_work_intent() -> FormalWorkIntent {
+        FormalWorkIntent {
+            title: work_title("Formal work"),
+            method_definition_ref: Some(method_definition_ref()),
+            assignee_ref: project_member_ref(),
+            parent_ref: None,
+        }
+    }
+
+    /// Returns a deterministic child work intent.
+    pub fn child_work_intent() -> FormalWorkIntent {
+        FormalWorkIntent {
+            title: work_title("Child work"),
+            method_definition_ref: Some(method_definition_ref()),
+            assignee_ref: project_member_ref(),
+            parent_ref: Some(formal_work_ref()),
+        }
+    }
+
+    /// Returns a deterministic work lifecycle reason for starting work.
+    pub fn start_work_reason() -> WorkLifecycleReason {
+        WorkLifecycleReason {
+            reason_kind: WorkLifecycleReasonKind::Start,
+            superseding_ref: None,
+            reason_ref: None,
+        }
+    }
+
+    /// Returns a deterministic cancellation reason.
+    pub fn cancellation_work_reason() -> WorkLifecycleReason {
+        WorkLifecycleReason {
+            reason_kind: WorkLifecycleReasonKind::Cancellation,
+            superseding_ref: None,
+            reason_ref: None,
+        }
+    }
+
+    /// Returns a deterministic completion reason.
+    pub fn completion_work_reason() -> WorkLifecycleReason {
+        WorkLifecycleReason {
+            reason_kind: WorkLifecycleReasonKind::CompletionEvidence,
+            superseding_ref: None,
+            reason_ref: Some(completion_evidence_ref()),
+        }
+    }
+
+    /// Returns a deterministic superseded reason.
+    pub fn superseded_work_reason() -> WorkLifecycleReason {
+        WorkLifecycleReason {
+            reason_kind: WorkLifecycleReasonKind::Superseded,
+            superseding_ref: Some(child_formal_work_ref()),
+            reason_ref: None,
+        }
+    }
+
     /// Returns a deterministic trace id.
     pub fn trace_id() -> WorkTraceId {
         WorkTraceId("trace-record-1".to_owned())
@@ -194,6 +326,11 @@ pub mod fixtures {
     /// Returns a deterministic project-member change.
     pub fn project_member_changed_change() -> WorkTruthChange {
         WorkTruthChange::ProjectMemberChanged(project_member_ref())
+    }
+
+    /// Returns a deterministic work-item change.
+    pub fn work_item_changed_change() -> WorkTruthChange {
+        WorkTruthChange::WorkItemChanged(formal_work_ref())
     }
 
     /// Returns a deterministic trace context ref.

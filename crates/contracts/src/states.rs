@@ -42,6 +42,24 @@ pub enum BacklogState {
     Archived,
 }
 
+/// Lifecycle state for a formal Work item.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkItemState {
+    /// The work item is formally admitted into the backlog.
+    Formalized,
+    /// The work item is committed into an iteration scope.
+    Committed,
+    /// The work item is actively being worked.
+    InProgress,
+    /// The work item is completed with accepted evidence.
+    Completed,
+    /// The work item was cancelled before completion.
+    Cancelled,
+    /// The work item was superseded by another formal work record.
+    Superseded,
+}
+
 /// Target availability state requested for a backlog.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

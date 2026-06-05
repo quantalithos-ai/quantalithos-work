@@ -98,6 +98,9 @@ impl WorkAuditTrail {
             WorkAuditSubjectRef::ProjectMember(project_member_ref) => {
                 WorkAuditTrailId(format!("audit:project_member:{project_member_ref:?}"))
             }
+            WorkAuditSubjectRef::FormalWork(work_ref) => {
+                WorkAuditTrailId(format!("audit:formal_work:{work_ref:?}"))
+            }
         };
 
         Self {
@@ -115,6 +118,9 @@ impl WorkAuditTrail {
             (WorkAuditSubjectRef::Project(lhs), WorkTraceSubjectRef::Project(rhs)) => lhs == rhs,
             (WorkAuditSubjectRef::Backlog(lhs), WorkTraceSubjectRef::Backlog(rhs)) => lhs == rhs,
             (WorkAuditSubjectRef::ProjectMember(lhs), WorkTraceSubjectRef::ProjectMember(rhs)) => {
+                lhs == rhs
+            }
+            (WorkAuditSubjectRef::FormalWork(lhs), WorkTraceSubjectRef::FormalWork(rhs)) => {
                 lhs == rhs
             }
             _ => false,

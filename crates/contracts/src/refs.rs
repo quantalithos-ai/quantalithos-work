@@ -23,9 +23,16 @@ string_newtype!(
     "References an identity-owned global member."
 );
 string_newtype!(BacklogId, "Identifies a Work-owned backlog.");
+string_newtype!(WorkItemId, "Identifies a formal root work item.");
+string_newtype!(ChildWorkItemId, "Identifies a formal child work item.");
+string_newtype!(IterationId, "Identifies a Work-owned iteration.");
 string_newtype!(
     CapabilityRef,
     "Capability reference from identity or method policy."
+);
+string_newtype!(
+    MethodDefinitionRef,
+    "References a method-library definition."
 );
 string_newtype!(
     WorkTruthCursor,
@@ -39,6 +46,10 @@ string_newtype!(ArchiveHandoffRef, "External archive handoff pointer.");
 string_newtype!(
     SafeSummaryText,
     "Safe short text stored by Work for protocol-visible summaries."
+);
+string_newtype!(
+    WorkTitle,
+    "Human-readable title for formal Work public views."
 );
 string_newtype!(
     SourceDigest,
@@ -79,6 +90,22 @@ pub struct ProjectMemberRef {
 pub struct BacklogRef {
     /// Stable backlog id.
     pub backlog_id: BacklogId,
+}
+
+/// References formal Work truth regardless of root or child shape.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum FormalWorkRef {
+    /// A root formal work item.
+    WorkItem(WorkItemId),
+    /// A formal child work item.
+    ChildWorkItem(ChildWorkItemId),
+}
+
+/// References a Work-owned iteration.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct IterationRef {
+    /// Stable iteration id.
+    pub iteration_id: IterationId,
 }
 
 /// Scope used to derive a stable projection key.
@@ -208,6 +235,20 @@ pub enum SourceWorkKind {
     Governance,
 }
 
+/// Method definition category safe for Work intent classification.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MethodDefinitionKind {
+    /// Task-oriented method definition.
+    Task,
+    /// Product-oriented method definition.
+    Product,
+    /// Process-oriented method definition.
+    Process,
+    /// View-profile method definition.
+    ViewProfile,
+}
+
 /// Indicates whether an external evidence reference is safe to use.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -254,6 +295,20 @@ pub struct ExternalEvidenceRef {
     pub external_ref: ExternalSourceRef,
     /// Verification state of the referenced evidence.
     pub verified_state: EvidenceVerifiedState,
+}
+
+/// Target lifecycle state requested for formal work.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkLifecycleTarget {
+    /// Start work.
+    InProgress,
+    /// Mark work complete.
+    Completed,
+    /// Cancel work.
+    Cancelled,
+    /// Supersede work with another formal record.
+    Superseded,
 }
 
 /// Target lifecycle state requested for a Work project.
@@ -337,6 +392,17 @@ pub struct BacklogMaintenanceReason {
     pub reason_ref: Option<ExternalEvidenceRef>,
 }
 
+/// Reason supplied for formal work lifecycle transitions.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct WorkLifecycleReason {
+    /// Reason category.
+    pub reason_kind: WorkLifecycleReasonKind,
+    /// Formal work superseding this record when applicable.
+    pub superseding_ref: Option<FormalWorkRef>,
+    /// Optional external evidence or decision reference.
+    pub reason_ref: Option<ExternalEvidenceRef>,
+}
+
 /// Backlog availability explanation category.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -347,6 +413,20 @@ pub enum BacklogMaintenanceReasonKind {
     PolicyHold,
     /// Manual unlock after maintenance.
     ManualUnlock,
+}
+
+/// Formal work lifecycle explanation category.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkLifecycleReasonKind {
+    /// Work started.
+    Start,
+    /// Work completed with evidence.
+    CompletionEvidence,
+    /// Work cancelled before completion.
+    Cancellation,
+    /// Work superseded by another formal record.
+    Superseded,
 }
 
 /// Work outbox event category derived from a truth change.
@@ -412,6 +492,8 @@ pub enum WorkTraceSubjectRef {
     Backlog(BacklogRef),
     /// Project member subject.
     ProjectMember(ProjectMemberRef),
+    /// Formal work subject.
+    FormalWork(FormalWorkRef),
     /// Trace or archive handoff subject.
     Handoff(TraceHandoffRef),
 }
@@ -425,6 +507,8 @@ pub enum WorkAuditSubjectRef {
     Backlog(BacklogRef),
     /// Project member audit subject.
     ProjectMember(ProjectMemberRef),
+    /// Formal work audit subject.
+    FormalWork(FormalWorkRef),
 }
 
 /// Set of trace records linked from an audit trail.
@@ -445,6 +529,8 @@ pub enum WorkTruthChange {
     ProjectMemberChanged(ProjectMemberRef),
     /// A backlog availability state changed.
     BacklogAvailabilityChanged(BacklogRef),
+    /// A formal work item changed.
+    WorkItemChanged(FormalWorkRef),
 }
 
 impl WorkTruthChange {
@@ -460,6 +546,7 @@ impl WorkTruthChange {
             Self::BacklogAvailabilityChanged(backlog_ref) => {
                 WorkTraceSubjectRef::Backlog(backlog_ref.clone())
             }
+            Self::WorkItemChanged(work_ref) => WorkTraceSubjectRef::FormalWork(work_ref.clone()),
         }
     }
 
@@ -475,6 +562,7 @@ impl WorkTruthChange {
             Self::BacklogAvailabilityChanged(backlog_ref) => {
                 WorkAuditSubjectRef::Backlog(backlog_ref.clone())
             }
+            Self::WorkItemChanged(work_ref) => WorkAuditSubjectRef::FormalWork(work_ref.clone()),
         }
     }
 
@@ -486,8 +574,59 @@ impl WorkTruthChange {
             }
             Self::ProjectMemberChanged(_) => WorkOutboxEventKind::ProjectMemberChanged,
             Self::BacklogAvailabilityChanged(_) => WorkOutboxEventKind::BacklogChanged,
+            Self::WorkItemChanged(_) => WorkOutboxEventKind::WorkItemChanged,
         }
     }
+}
+
+/// Describes a formal collaborative work intent.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct FormalWorkIntent {
+    /// Human-readable title for public Work views.
+    pub title: WorkTitle,
+    /// Stable method definition reference used to classify the work.
+    pub method_definition_ref: Option<MethodDefinitionRef>,
+    /// Intended assignee inside the project.
+    pub assignee_ref: ProjectMemberRef,
+    /// Optional parent formal work for split candidates.
+    pub parent_ref: Option<FormalWorkRef>,
+}
+
+/// Scope used by Work truth policy checks.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct WorkPolicyScope {
+    /// Project scope for the check.
+    pub project_ref: ProjectRef,
+    /// Optional formal work affected by the check.
+    pub work_ref: Option<FormalWorkRef>,
+    /// Optional external source considered by the check.
+    pub source_ref: Option<SourceWorkRef>,
+}
+
+/// Safe candidate summary for formal work admission.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct FormalWorkCandidateSummary {
+    /// Candidate title.
+    pub title: WorkTitle,
+    /// Source reference.
+    pub source_ref: SourceWorkRef,
+    /// Optional method definition reference.
+    pub method_definition_ref: Option<MethodDefinitionRef>,
+    /// Candidate assignee.
+    pub assignee_ref: ProjectMemberRef,
+}
+
+/// Safe external source summary used by Work policy.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ExternalSourceSummary {
+    /// Source reference.
+    pub source_ref: SourceWorkRef,
+    /// Source kind.
+    pub source_kind: SourceWorkKind,
+    /// Optional digest supplied by the source.
+    pub source_digest: Option<SourceDigest>,
+    /// Whether the resolver observed an external body that must be rejected.
+    pub has_external_body: bool,
 }
 
 /// Trace handoff target category.
@@ -531,4 +670,6 @@ pub struct WorkTruthSnapshot {
     pub lifecycle_state: ProjectLifecycleState,
     /// Backlog state when available.
     pub backlog_state: Option<BacklogState>,
+    /// Current truth cursor.
+    pub source_cursor: WorkTruthCursor,
 }

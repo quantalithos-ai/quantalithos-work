@@ -8,30 +8,36 @@ pub mod refs;
 pub mod states;
 
 pub use commands::{
-    AssignProjectMemberRequest, BacklogCommandResult, CreateProjectRequest, IdempotencyResultView,
-    ProjectCommandResult, ProjectMemberCommandResult, ProjectResponsibilitySpec, ProjectSpec,
+    AssignProjectMemberRequest, BacklogCommandResult, CreateChildWorkItemRequest,
+    CreateProjectRequest, CreateWorkItemRequest, IdempotencyResultView, ProjectCommandResult,
+    ProjectMemberCommandResult, ProjectResponsibilitySpec, ProjectSpec,
     UpdateBacklogAvailabilityRequest, UpdateProjectLifecycleRequest,
-    UpdateProjectMemberResponsibilityRequest, WorkCommandEnvelope,
+    UpdateProjectMemberResponsibilityRequest, WorkCommandEnvelope, WorkItemCommandResult,
 };
 pub use errors::WorkProtocolError;
 pub use handoff::{ApplicationResultRef, WorkCommandReceipt, WorkTraceContextRef};
 pub use metadata::fixtures;
 pub use refs::{
     ArchiveHandoffRef, BacklogId, BacklogMaintenanceReason, BacklogMaintenanceReasonKind,
-    BacklogRef, CapabilityRef, CapabilityRefSet, DerivedWorkViewKind, DerivedWorkViewRef,
-    DerivedWorkViewScopeRef, ExternalEvidenceRef, ExternalSourceRef, ExternalSourceSystem,
-    GlobalMemberRef, OutboxFailureReason, OutboxFailureReasonKind, OutboxPublicationRef,
-    OutboxRetryReason, ProjectId, ProjectLifecycleReason, ProjectLifecycleReasonKind,
-    ProjectLifecycleTarget, ProjectMemberId, ProjectMemberReason, ProjectMemberReasonKind,
-    ProjectMemberRef, ProjectOwnerKind, ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind,
-    ResponsibilityTarget, ResultId, SafeSummaryText, SourceDigest, SourceWorkKind, SourceWorkRef,
-    TraceHandoffIntent, TraceHandoffRef, TraceHandoffTargetKind, TraceHandoffTargetRef,
-    WorkAuditSubjectRef, WorkAuditTrailId, WorkOutboxEventKind, WorkOutboxId, WorkTraceId,
-    WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange, WorkTruthCursor,
+    BacklogRef, CapabilityRef, CapabilityRefSet, ChildWorkItemId, DerivedWorkViewKind,
+    DerivedWorkViewRef, DerivedWorkViewScopeRef, EvidenceKind, EvidenceVerifiedState,
+    ExternalEvidenceRef, ExternalSourceRef, ExternalSourceSummary, ExternalSourceSystem,
+    FormalWorkCandidateSummary, FormalWorkIntent, FormalWorkRef, GlobalMemberRef, IterationId,
+    IterationRef, MethodDefinitionKind, MethodDefinitionRef, OutboxFailureReason,
+    OutboxFailureReasonKind, OutboxPublicationRef, OutboxRetryReason, ProjectId,
+    ProjectLifecycleReason, ProjectLifecycleReasonKind, ProjectLifecycleTarget, ProjectMemberId,
+    ProjectMemberReason, ProjectMemberReasonKind, ProjectMemberRef, ProjectOwnerKind,
+    ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind, ResponsibilityTarget, ResultId,
+    SafeSummaryText, SourceDigest, SourceWorkKind, SourceWorkRef, TraceHandoffIntent,
+    TraceHandoffRef, TraceHandoffTargetKind, TraceHandoffTargetRef, WorkAuditSubjectRef,
+    WorkAuditTrailId, WorkItemId, WorkLifecycleReason, WorkLifecycleReasonKind,
+    WorkLifecycleTarget, WorkOutboxEventKind, WorkOutboxId, WorkPolicyScope, WorkTitle,
+    WorkTraceId, WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange, WorkTruthCursor,
+    WorkTruthSnapshot,
 };
 pub use states::{
     BacklogAvailabilityTarget, BacklogState, OutboxPublicationState, ProjectLifecycleState,
-    ProjectMemberResponsibilityState,
+    ProjectMemberResponsibilityState, WorkItemState,
 };
 
 #[cfg(test)]
@@ -40,10 +46,11 @@ mod tests {
     use serde::de::DeserializeOwned;
 
     use super::commands::{
-        AssignProjectMemberRequest, BacklogCommandResult, CreateProjectRequest,
-        IdempotencyResultView, ProjectCommandResult, ProjectMemberCommandResult,
-        UpdateBacklogAvailabilityRequest, UpdateProjectLifecycleRequest,
-        UpdateProjectMemberResponsibilityRequest, WorkCommandEnvelope,
+        AssignProjectMemberRequest, BacklogCommandResult, CreateChildWorkItemRequest,
+        CreateProjectRequest, CreateWorkItemRequest, IdempotencyResultView, ProjectCommandResult,
+        ProjectMemberCommandResult, UpdateBacklogAvailabilityRequest,
+        UpdateProjectLifecycleRequest, UpdateProjectMemberResponsibilityRequest,
+        WorkCommandEnvelope, WorkItemCommandResult,
     };
     use super::handoff::{WorkCommandReceipt, WorkTraceContextRef};
     use super::metadata::fixtures;
@@ -55,7 +62,7 @@ mod tests {
     };
     use super::states::{
         BacklogAvailabilityTarget, BacklogState, ProjectLifecycleState,
-        ProjectMemberResponsibilityState,
+        ProjectMemberResponsibilityState, WorkItemState,
     };
 
     fn roundtrip<T>(value: &T)
@@ -106,6 +113,16 @@ mod tests {
             },
             expected_version: 2,
         });
+        roundtrip(&CreateWorkItemRequest {
+            project_ref: fixtures::project_ref(),
+            work_intent: fixtures::formal_work_intent(),
+            source_ref: fixtures::source_work_ref(),
+        });
+        roundtrip(&CreateChildWorkItemRequest {
+            parent_ref: fixtures::formal_work_ref(),
+            work_intent: fixtures::child_work_intent(),
+            source_ref: fixtures::source_work_ref(),
+        });
     }
 
     #[test]
@@ -148,6 +165,17 @@ mod tests {
                 applied_version: Some(1),
             },
         });
+        roundtrip(&WorkItemCommandResult {
+            work_ref: fixtures::formal_work_ref(),
+            work_state: WorkItemState::Formalized,
+            receipt: WorkCommandReceipt {
+                result_ref: fixtures::application_result_ref("create_work_item", "result-3"),
+                idempotency: IdempotencyResultView::Applied,
+                trace_ref: Some(fixtures::trace_id()),
+                outbox_record_refs: vec![fixtures::outbox_id()],
+                applied_version: Some(1),
+            },
+        });
     }
 
     #[test]
@@ -167,6 +195,9 @@ mod tests {
         ));
         roundtrip(&WorkTruthChange::BacklogAvailabilityChanged(
             fixtures::backlog_ref(),
+        ));
+        roundtrip(&WorkTruthChange::WorkItemChanged(
+            fixtures::formal_work_ref(),
         ));
         roundtrip(&WorkTraceContextRef::from_metadata(
             &fixtures::request_metadata(None),

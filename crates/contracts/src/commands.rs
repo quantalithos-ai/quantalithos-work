@@ -6,13 +6,14 @@ use core_contracts::{actor::ActorContext, metadata::CommandMetadata};
 
 use crate::handoff::WorkCommandReceipt;
 use crate::refs::{
-    BacklogMaintenanceReason, BacklogRef, CapabilityRefSet, GlobalMemberRef,
-    ProjectLifecycleReason, ProjectLifecycleTarget, ProjectMemberReason, ProjectMemberRef,
-    ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind, ResponsibilityTarget, SourceWorkRef,
+    BacklogMaintenanceReason, BacklogRef, CapabilityRefSet, FormalWorkIntent, FormalWorkRef,
+    GlobalMemberRef, ProjectLifecycleReason, ProjectLifecycleTarget, ProjectMemberReason,
+    ProjectMemberRef, ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind, ResponsibilityTarget,
+    SourceWorkRef,
 };
 use crate::states::{
     BacklogAvailabilityTarget, BacklogState, ProjectLifecycleState,
-    ProjectMemberResponsibilityState,
+    ProjectMemberResponsibilityState, WorkItemState,
 };
 
 /// A synchronous Work command envelope.
@@ -101,6 +102,28 @@ pub struct UpdateProjectMemberResponsibilityRequest {
     pub expected_version: core_contracts::metadata::Version,
 }
 
+/// Requests creation of a root formal work item.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CreateWorkItemRequest {
+    /// Project that owns the work.
+    pub project_ref: ProjectRef,
+    /// Formal work intent.
+    pub work_intent: FormalWorkIntent,
+    /// External source reference.
+    pub source_ref: SourceWorkRef,
+}
+
+/// Requests creation of a formal child work item.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CreateChildWorkItemRequest {
+    /// Parent formal work item.
+    pub parent_ref: FormalWorkRef,
+    /// Formal child work intent.
+    pub work_intent: FormalWorkIntent,
+    /// External source reference.
+    pub source_ref: SourceWorkRef,
+}
+
 /// Idempotency result visible to command and job callers.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -163,6 +186,26 @@ pub struct ProjectMemberCommandResult {
 }
 
 impl ProjectMemberCommandResult {
+    /// Returns a duplicate replay view while preserving the stored result surface.
+    pub fn with_duplicate_receipt(&self) -> Self {
+        let mut result = self.clone();
+        result.receipt = result.receipt.with_duplicate_overlay();
+        result
+    }
+}
+
+/// Result returned by formal work commands.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct WorkItemCommandResult {
+    /// Changed formal work reference.
+    pub work_ref: FormalWorkRef,
+    /// Current formal work lifecycle state.
+    pub work_state: WorkItemState,
+    /// Shared write receipt.
+    pub receipt: WorkCommandReceipt,
+}
+
+impl WorkItemCommandResult {
     /// Returns a duplicate replay view while preserving the stored result surface.
     pub fn with_duplicate_receipt(&self) -> Self {
         let mut result = self.clone();
