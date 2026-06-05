@@ -145,6 +145,8 @@ name = "work-contracts"
 version = "0.1.0"
 dependencies = [
  "core-contracts",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -152,6 +154,7 @@ name = "work-domain"
 version = "0.1.0"
 dependencies = [
  "core-contracts",
+ "thiserror",
  "work-contracts",
 ]
 

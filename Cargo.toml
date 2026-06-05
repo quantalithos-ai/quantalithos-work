@@ -12,3 +12,6 @@ resolver = "2"
 
 [workspace.dependencies]
 core-contracts = { path = "../quantalithos-core/crates/contracts" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
