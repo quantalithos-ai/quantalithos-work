@@ -7,6 +7,7 @@ mod ports;
 mod project;
 mod results;
 mod unit_of_work;
+mod workitem;
 
 pub use errors::ApplicationError;
 pub use idempotency::{
@@ -15,10 +16,13 @@ pub use idempotency::{
 };
 pub use member::ProjectMemberCommandService;
 pub use ports::{
-    AuditRepository, BacklogRepository, ClockPort, IdGeneratorPort, MemberCapabilitySnapshotInput,
-    MemberReferencePort, Page, PageInfo, PortError, ProjectMemberRepository, ProjectRepository,
-    ProjectionRepository, ReferenceSnapshotRepository, RepositoryError, WorkOutboxRepository,
+    AuditRepository, BacklogRepository, ClockPort, EvidenceResolution, EvidenceResolverPort,
+    FormalWorkRecord, IdGeneratorPort, MemberCapabilitySnapshotInput, MemberReferencePort, Page,
+    PageInfo, PortError, ProjectMemberRepository, ProjectRepository, ProjectionRepository,
+    ReferenceSnapshotRepository, RepositoryError, SourceWorkResolution, SourceWorkResolverPort,
+    WorkItemRepository, WorkOutboxRepository,
 };
 pub use project::ProjectCommandService;
 pub use results::{CommandResultRepository, StoredCommandResult};
 pub use unit_of_work::{UnitOfWork, UnitOfWorkError, UnitOfWorkHandle, UnitOfWorkId};
+pub use workitem::WorkItemCommandService;

@@ -6,17 +6,17 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use core_contracts::metadata::{PageRequest, Version};
 use work_application::{
-    AuditRepository, BacklogRepository, Page, PageInfo, ProjectMemberRepository, ProjectRepository,
-    ProjectionRepository, ReferenceSnapshotRepository, RepositoryError, UnitOfWork,
-    UnitOfWorkError, UnitOfWorkHandle, UnitOfWorkId,
+    AuditRepository, BacklogRepository, FormalWorkRecord, Page, PageInfo, ProjectMemberRepository,
+    ProjectRepository, ProjectionRepository, ReferenceSnapshotRepository, RepositoryError,
+    UnitOfWork, UnitOfWorkError, UnitOfWorkHandle, UnitOfWorkId, WorkItemRepository,
 };
 use work_contracts::{
-    BacklogRef, DerivedWorkViewRef, GlobalMemberRef, ProjectMemberRef, ProjectOwnerRef, ProjectRef,
-    WorkAuditSubjectRef, WorkTruthCursor,
+    BacklogRef, DerivedWorkViewRef, FormalWorkRef, GlobalMemberRef, ProjectMemberRef,
+    ProjectOwnerRef, ProjectRef, WorkAuditSubjectRef, WorkTruthCursor,
 };
 use work_domain::{
-    Backlog, MemberCapabilitySnapshot, ProjectMember, TraceHandoffMarker, WorkAuditTrail,
-    WorkTraceRecord,
+    Backlog, ChildWorkItem, MemberCapabilitySnapshot, ProjectMember, TraceHandoffMarker,
+    WorkAuditTrail, WorkItem, WorkTraceRecord,
 };
 
 /// Shared in-memory fake stores for CORE command service tests.
@@ -31,8 +31,11 @@ struct Stores {
     projects: HashMap<String, (work_domain::Project, Version)>,
     backlogs: HashMap<String, (Backlog, Version)>,
     backlog_by_project: HashMap<String, String>,
+    backlog_membership: HashMap<String, Vec<FormalWorkRef>>,
     project_members: HashMap<String, (ProjectMember, Version)>,
     project_member_by_project_and_member: HashMap<(String, String), String>,
+    work_items: HashMap<String, (WorkItem, Version)>,
+    child_work_items: HashMap<String, (ChildWorkItem, Version)>,
     member_snapshots: HashMap<String, (MemberCapabilitySnapshot, Version)>,
     audit_trails: HashMap<String, (WorkAuditTrail, Version)>,
     traces: Vec<WorkTraceRecord>,
@@ -58,6 +61,14 @@ impl InMemoryWorkStores {
         self.state
             .lock()
             .map(|state| state.stale_marks.len())
+            .unwrap_or_default()
+    }
+
+    /// Returns all stored stale marker writes in append order.
+    pub fn stale_marks(&self) -> Vec<(Vec<DerivedWorkViewRef>, WorkTruthCursor)> {
+        self.state
+            .lock()
+            .map(|state| state.stale_marks.clone())
             .unwrap_or_default()
     }
 
@@ -102,6 +113,60 @@ impl InMemoryWorkStores {
             .lock()
             .ok()
             .and_then(|state| state.member_snapshots.get(&member_ref.0).cloned())
+    }
+
+    /// Returns one stored root work item and version by ref.
+    pub fn work_item_snapshot(&self, work_ref: &FormalWorkRef) -> Option<(WorkItem, Version)> {
+        let FormalWorkRef::WorkItem(work_item_id) = work_ref else {
+            return None;
+        };
+        self.state
+            .lock()
+            .ok()
+            .and_then(|state| state.work_items.get(&work_item_id.0).cloned())
+    }
+
+    /// Returns one stored child work item and version by ref.
+    pub fn child_work_item_snapshot(
+        &self,
+        work_ref: &FormalWorkRef,
+    ) -> Option<(ChildWorkItem, Version)> {
+        let FormalWorkRef::ChildWorkItem(child_work_item_id) = work_ref else {
+            return None;
+        };
+        self.state
+            .lock()
+            .ok()
+            .and_then(|state| state.child_work_items.get(&child_work_item_id.0).cloned())
+    }
+
+    /// Returns the formal work membership for one backlog.
+    pub fn backlog_membership(&self, backlog_ref: &BacklogRef) -> Vec<FormalWorkRef> {
+        self.state
+            .lock()
+            .ok()
+            .and_then(|state| {
+                state
+                    .backlog_membership
+                    .get(&backlog_ref.backlog_id.0)
+                    .cloned()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Returns the project ref that owns one backlog id.
+    pub fn project_ref_for_backlog(
+        &self,
+        backlog_id: &work_contracts::BacklogId,
+    ) -> Option<ProjectRef> {
+        self.state.lock().ok().and_then(|state| {
+            state
+                .backlogs
+                .get(&backlog_id.0)
+                .map(|(backlog, _)| ProjectRef {
+                    project_id: backlog.project_id.clone(),
+                })
+        })
     }
 }
 
@@ -256,19 +321,18 @@ impl BacklogRepository for InMemoryWorkStores {
         backlog: Backlog,
         _uow: &UnitOfWorkHandle,
     ) -> Result<Version, RepositoryError> {
+        let backlog_id = backlog.backlog_id.0.clone();
+        let project_id = backlog.project_id.0.clone();
         let mut state = self
             .state
             .lock()
             .map_err(|_| RepositoryError::StoreUnavailable)?;
-        if state.backlogs.contains_key(&backlog.backlog_id.0) {
+        if state.backlogs.contains_key(&backlog_id) {
             return Err(RepositoryError::VersionConflict);
         }
-        state
-            .backlog_by_project
-            .insert(backlog.project_id.0.clone(), backlog.backlog_id.0.clone());
-        state
-            .backlogs
-            .insert(backlog.backlog_id.0.clone(), (backlog, 1));
+        state.backlog_by_project.insert(project_id, backlog_id.clone());
+        state.backlogs.insert(backlog_id.clone(), (backlog, 1));
+        state.backlog_membership.entry(backlog_id).or_default();
         Ok(1)
     }
 
@@ -292,6 +356,141 @@ impl BacklogRepository for InMemoryWorkStores {
         entry.0 = backlog;
         entry.1 += 1;
         Ok(entry.1)
+    }
+
+    async fn contains_formal_work(
+        &self,
+        backlog_ref: BacklogRef,
+        work_ref: FormalWorkRef,
+    ) -> Result<bool, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(state
+            .backlog_membership
+            .get(&backlog_ref.backlog_id.0)
+            .map(|refs| refs.contains(&work_ref))
+            .unwrap_or(false))
+    }
+
+    async fn add_formal_work(
+        &self,
+        backlog_ref: BacklogRef,
+        work_ref: FormalWorkRef,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<(), RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        state
+            .backlog_membership
+            .entry(backlog_ref.backlog_id.0)
+            .or_default()
+            .push(work_ref);
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl WorkItemRepository for InMemoryWorkStores {
+    async fn get_formal_work(
+        &self,
+        work_ref: FormalWorkRef,
+    ) -> Result<Option<FormalWorkRecord>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(match work_ref {
+            FormalWorkRef::WorkItem(work_item_id) => state
+                .work_items
+                .get(&work_item_id.0)
+                .map(|(work_item, _)| FormalWorkRecord::WorkItem(work_item.clone())),
+            FormalWorkRef::ChildWorkItem(child_work_item_id) => state
+                .child_work_items
+                .get(&child_work_item_id.0)
+                .map(|(child, _)| FormalWorkRecord::ChildWorkItem(child.clone())),
+        })
+    }
+
+    async fn create_work_item(
+        &self,
+        work_item: WorkItem,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        if state.work_items.contains_key(&work_item.work_item_id.0) {
+            return Err(RepositoryError::VersionConflict);
+        }
+        state
+            .work_items
+            .insert(work_item.work_item_id.0.clone(), (work_item, 1));
+        Ok(1)
+    }
+
+    async fn create_child_work_item(
+        &self,
+        child_work_item: ChildWorkItem,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        if state
+            .child_work_items
+            .contains_key(&child_work_item.child_work_item_id.0)
+        {
+            return Err(RepositoryError::VersionConflict);
+        }
+        state.child_work_items.insert(
+            child_work_item.child_work_item_id.0.clone(),
+            (child_work_item, 1),
+        );
+        Ok(1)
+    }
+
+    async fn save_formal_work(
+        &self,
+        record: FormalWorkRecord,
+        expected_version: Version,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        match record {
+            FormalWorkRecord::WorkItem(work_item) => {
+                let entry = state
+                    .work_items
+                    .get_mut(&work_item.work_item_id.0)
+                    .ok_or(RepositoryError::NotFound)?;
+                if entry.1 != expected_version {
+                    return Err(RepositoryError::VersionConflict);
+                }
+                entry.0 = work_item;
+                entry.1 += 1;
+                Ok(entry.1)
+            }
+            FormalWorkRecord::ChildWorkItem(child) => {
+                let entry = state
+                    .child_work_items
+                    .get_mut(&child.child_work_item_id.0)
+                    .ok_or(RepositoryError::NotFound)?;
+                if entry.1 != expected_version {
+                    return Err(RepositoryError::VersionConflict);
+                }
+                entry.0 = child;
+                entry.1 += 1;
+                Ok(entry.1)
+            }
+        }
     }
 }
 

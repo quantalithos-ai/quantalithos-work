@@ -6,10 +6,10 @@ use core_contracts::{actor::ActorContext, metadata::CommandMetadata};
 
 use crate::handoff::WorkCommandReceipt;
 use crate::refs::{
-    BacklogMaintenanceReason, BacklogRef, CapabilityRefSet, FormalWorkIntent, FormalWorkRef,
-    GlobalMemberRef, ProjectLifecycleReason, ProjectLifecycleTarget, ProjectMemberReason,
-    ProjectMemberRef, ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind, ResponsibilityTarget,
-    SourceWorkRef,
+    BacklogMaintenanceReason, BacklogRef, CapabilityRefSet, ExternalEvidenceRef, FormalWorkIntent,
+    FormalWorkRef, GlobalMemberRef, ProjectLifecycleReason, ProjectLifecycleTarget,
+    ProjectMemberReason, ProjectMemberRef, ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind,
+    ResponsibilityTarget, SourceWorkRef, WorkLifecycleReason, WorkLifecycleTarget,
 };
 use crate::states::{
     BacklogAvailabilityTarget, BacklogState, ProjectLifecycleState,
@@ -122,6 +122,21 @@ pub struct CreateChildWorkItemRequest {
     pub work_intent: FormalWorkIntent,
     /// External source reference.
     pub source_ref: SourceWorkRef,
+}
+
+/// Requests a lifecycle transition for formal work.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct UpdateWorkItemLifecycleRequest {
+    /// Formal work record to update.
+    pub work_ref: FormalWorkRef,
+    /// Target lifecycle state.
+    pub target: WorkLifecycleTarget,
+    /// Reason for the transition.
+    pub reason: WorkLifecycleReason,
+    /// Completion or transition evidence when required.
+    pub evidence_ref: Option<ExternalEvidenceRef>,
+    /// Expected formal work version.
+    pub expected_version: core_contracts::metadata::Version,
 }
 
 /// Idempotency result visible to command and job callers.

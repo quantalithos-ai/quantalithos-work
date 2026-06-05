@@ -6,13 +6,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::UnitOfWorkHandle;
 use work_contracts::{
-    BacklogRef, DerivedWorkViewRef, GlobalMemberRef, OutboxFailureReason, OutboxPublicationRef,
-    OutboxRetryReason, ProjectMemberId, ProjectMemberRef, ProjectOwnerRef, ProjectRef,
-    WorkAuditSubjectRef, WorkOutboxId, WorkTruthCursor,
+    BacklogRef, DerivedWorkViewRef, ExternalEvidenceRef, ExternalSourceSummary, FormalWorkRef,
+    GlobalMemberRef, OutboxFailureReason, OutboxPublicationRef, OutboxRetryReason, ProjectMemberId,
+    ProjectMemberRef, ProjectOwnerRef, ProjectRef, SourceWorkRef, WorkAuditSubjectRef,
+    WorkOutboxId, WorkTruthCursor,
 };
 use work_domain::{
-    Backlog, MemberCapabilitySnapshot, ProjectMember, TraceHandoffMarker, WorkAuditTrail,
-    WorkOutboxRecord, WorkTraceRecord,
+    Backlog, ChildWorkItem, MemberCapabilitySnapshot, ProjectMember, TraceHandoffMarker,
+    WorkAuditTrail, WorkItem, WorkOutboxRecord, WorkTraceRecord,
 };
 
 /// A repository page returned before public query mapping.
@@ -68,6 +69,57 @@ pub struct MemberCapabilitySnapshotInput {
     pub capability_refs: work_contracts::CapabilityRefSet,
 }
 
+/// Safe source summary returned by the source resolver.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SourceWorkResolution {
+    /// Stable source reference accepted by the resolver.
+    pub source_ref: SourceWorkRef,
+    /// Safe summary for forbidden-body checks.
+    pub summary: ExternalSourceSummary,
+}
+
+/// Safe evidence summary returned by the evidence resolver.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceResolution {
+    /// Stable evidence reference accepted by the resolver.
+    pub evidence_ref: ExternalEvidenceRef,
+}
+
+/// Repository-loaded formal work truth.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FormalWorkRecord {
+    /// A root work item record.
+    WorkItem(WorkItem),
+    /// A child work item record.
+    ChildWorkItem(ChildWorkItem),
+}
+
+impl FormalWorkRecord {
+    /// Returns the stable formal work reference for this record.
+    pub fn formal_work_ref(&self) -> FormalWorkRef {
+        match self {
+            Self::WorkItem(work_item) => work_item.formal_work_ref(),
+            Self::ChildWorkItem(child) => child.formal_work_ref(),
+        }
+    }
+
+    /// Returns the root work item id when this record is a root work item.
+    pub fn as_root_work_item_id(&self) -> Option<work_contracts::WorkItemId> {
+        match self {
+            Self::WorkItem(work_item) => Some(work_item.work_item_id.clone()),
+            Self::ChildWorkItem(_) => None,
+        }
+    }
+
+    /// Returns the current work state regardless of variant.
+    pub fn work_state(&self) -> work_contracts::WorkItemState {
+        match self {
+            Self::WorkItem(work_item) => work_item.work_state,
+            Self::ChildWorkItem(child) => child.work_state,
+        }
+    }
+}
+
 /// Stores Work-owned project truth.
 #[async_trait]
 pub trait ProjectRepository: Send + Sync {
@@ -118,6 +170,13 @@ pub trait BacklogRepository: Send + Sync {
         project_ref: ProjectRef,
     ) -> Result<Option<(Backlog, Version)>, RepositoryError>;
 
+    /// Checks whether one formal work ref belongs to the backlog.
+    async fn contains_formal_work(
+        &self,
+        backlog_ref: BacklogRef,
+        work_ref: FormalWorkRef,
+    ) -> Result<bool, RepositoryError>;
+
     /// Creates a backlog inside the current unit of work.
     async fn create(
         &self,
@@ -132,6 +191,14 @@ pub trait BacklogRepository: Send + Sync {
         expected_version: Version,
         uow: &UnitOfWorkHandle,
     ) -> Result<Version, RepositoryError>;
+
+    /// Adds one formal work membership inside the current unit of work.
+    async fn add_formal_work(
+        &self,
+        backlog_ref: BacklogRef,
+        work_ref: FormalWorkRef,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<(), RepositoryError>;
 }
 
 /// Stores project-local member responsibility truth.
@@ -168,6 +235,38 @@ pub trait ProjectMemberRepository: Send + Sync {
     async fn save(
         &self,
         project_member: ProjectMember,
+        expected_version: Version,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError>;
+}
+
+/// Stores formal work item and child work item truth.
+#[async_trait]
+pub trait WorkItemRepository: Send + Sync {
+    /// Loads a formal work record by a unified formal work reference.
+    async fn get_formal_work(
+        &self,
+        work_ref: FormalWorkRef,
+    ) -> Result<Option<FormalWorkRecord>, RepositoryError>;
+
+    /// Creates a root work item inside the current unit of work.
+    async fn create_work_item(
+        &self,
+        work_item: WorkItem,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError>;
+
+    /// Creates a child work item inside the current unit of work.
+    async fn create_child_work_item(
+        &self,
+        child_work_item: ChildWorkItem,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError>;
+
+    /// Saves a formal work lifecycle change inside the current unit of work.
+    async fn save_formal_work(
+        &self,
+        record: FormalWorkRecord,
         expected_version: Version,
         uow: &UnitOfWorkHandle,
     ) -> Result<Version, RepositoryError>;
@@ -295,6 +394,26 @@ pub trait MemberReferencePort: Send + Sync {
     ) -> Result<MemberCapabilitySnapshotInput, PortError>;
 }
 
+/// Resolves safe source summaries from adjacent boundaries.
+#[async_trait]
+pub trait SourceWorkResolverPort: Send + Sync {
+    /// Resolves one source reference into a safe summary.
+    async fn resolve_source_work(
+        &self,
+        source_ref: SourceWorkRef,
+    ) -> Result<SourceWorkResolution, PortError>;
+}
+
+/// Resolves completion or governance evidence from adjacent boundaries.
+#[async_trait]
+pub trait EvidenceResolverPort: Send + Sync {
+    /// Resolves one evidence reference into a safe verified reference.
+    async fn resolve_evidence(
+        &self,
+        evidence_ref: ExternalEvidenceRef,
+    ) -> Result<EvidenceResolution, PortError>;
+}
+
 /// Generates Work-owned identifiers.
 pub trait IdGeneratorPort: Send + Sync {
     /// Generates a project id.
@@ -305,6 +424,12 @@ pub trait IdGeneratorPort: Send + Sync {
 
     /// Generates a project member id.
     fn next_project_member_id(&self) -> Result<ProjectMemberId, PortError>;
+
+    /// Generates a root work item id.
+    fn next_work_item_id(&self) -> Result<work_contracts::WorkItemId, PortError>;
+
+    /// Generates a child work item id.
+    fn next_child_work_item_id(&self) -> Result<work_contracts::ChildWorkItemId, PortError>;
 
     /// Generates a result id.
     fn next_result_id(&self) -> Result<work_contracts::ResultId, PortError>;

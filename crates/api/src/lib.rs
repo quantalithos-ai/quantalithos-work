@@ -1,34 +1,79 @@
 //! API entrypoints for the Work bounded context.
 
-use work_application::{ApplicationError, ProjectCommandService, ProjectMemberCommandService};
+use work_application::{
+    ApplicationError, ProjectCommandService, ProjectMemberCommandService, WorkItemCommandService,
+};
 use work_contracts::{
-    AssignProjectMemberRequest, BacklogCommandResult, CreateProjectRequest, ProjectCommandResult,
-    ProjectMemberCommandResult, UpdateBacklogAvailabilityRequest, UpdateProjectLifecycleRequest,
-    UpdateProjectMemberResponsibilityRequest, WorkCommandEnvelope, WorkProtocolError,
+    AssignProjectMemberRequest, BacklogCommandResult, CreateChildWorkItemRequest,
+    CreateProjectRequest, CreateWorkItemRequest, ProjectCommandResult, ProjectMemberCommandResult,
+    UpdateBacklogAvailabilityRequest, UpdateProjectLifecycleRequest,
+    UpdateProjectMemberResponsibilityRequest, UpdateWorkItemLifecycleRequest, WorkCommandEnvelope,
+    WorkItemCommandResult, WorkProtocolError,
 };
 
 /// Thin command handlers that validate protocol shape and delegate to application services.
-pub struct WorkCommandHandlers<P, M> {
+pub struct WorkCommandHandlers<P, M, W> {
     /// Project-scoped command service.
     pub project_service: P,
     /// Project-member command service.
     pub member_service: M,
+    /// Formal work command service.
+    pub workitem_service: W,
 }
 
-impl<P, M> WorkCommandHandlers<P, M> {
+impl<P, M, W> WorkCommandHandlers<P, M, W> {
     /// Creates a handler set for command delegation.
-    pub fn new(project_service: P, member_service: M) -> Self {
+    pub fn new(project_service: P, member_service: M, workitem_service: W) -> Self {
         Self {
             project_service,
             member_service,
+            workitem_service,
         }
     }
 }
 
-impl<P, B, A, O, R, PR, U, I, C, IDEM, MP, MPM, MRS, MA, MO, MR, MPR, MU, MM, MI, MC, MIDEM>
+impl<
+    P,
+    B,
+    A,
+    O,
+    R,
+    PR,
+    U,
+    I,
+    C,
+    IDEM,
+    MP,
+    MPM,
+    MRS,
+    MA,
+    MO,
+    MR,
+    MPR,
+    MU,
+    MM,
+    MI,
+    MC,
+    MIDEM,
+    WP,
+    WB,
+    WPM,
+    WW,
+    WA,
+    WO,
+    WR,
+    WPR,
+    WU,
+    WS,
+    WE,
+    WI,
+    WC,
+    WIDEM,
+>
     WorkCommandHandlers<
         ProjectCommandService<P, B, A, O, R, PR, U, I, C, IDEM>,
         ProjectMemberCommandService<MP, MPM, MRS, MA, MO, MR, MPR, MU, MM, MI, MC, MIDEM>,
+        WorkItemCommandService<WP, WB, WPM, WW, WA, WO, WR, WPR, WU, WS, WE, WI, WC, WIDEM>,
     >
 where
     P: work_application::ProjectRepository,
@@ -53,6 +98,20 @@ where
     MI: work_application::IdGeneratorPort,
     MC: work_application::ClockPort,
     MIDEM: work_application::IdempotencyRepository,
+    WP: work_application::ProjectRepository,
+    WB: work_application::BacklogRepository,
+    WPM: work_application::ProjectMemberRepository,
+    WW: work_application::WorkItemRepository,
+    WA: work_application::AuditRepository,
+    WO: work_application::WorkOutboxRepository,
+    WR: work_application::CommandResultRepository,
+    WPR: work_application::ProjectionRepository,
+    WU: work_application::UnitOfWork,
+    WS: work_application::SourceWorkResolverPort,
+    WE: work_application::EvidenceResolverPort,
+    WI: work_application::IdGeneratorPort,
+    WC: work_application::ClockPort,
+    WIDEM: work_application::IdempotencyRepository,
 {
     /// Handles `CreateProject`.
     pub async fn handle_create_project(
@@ -108,6 +167,39 @@ where
             .await
             .map_err(ApplicationError::into_protocol_error)
     }
+
+    /// Handles `CreateWorkItem`.
+    pub async fn handle_create_work_item(
+        &self,
+        envelope: WorkCommandEnvelope<CreateWorkItemRequest>,
+    ) -> Result<WorkItemCommandResult, WorkProtocolError> {
+        self.workitem_service
+            .create_work_item(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
+
+    /// Handles `CreateChildWorkItem`.
+    pub async fn handle_create_child_work_item(
+        &self,
+        envelope: WorkCommandEnvelope<CreateChildWorkItemRequest>,
+    ) -> Result<WorkItemCommandResult, WorkProtocolError> {
+        self.workitem_service
+            .create_child_work_item(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
+
+    /// Handles `UpdateWorkItemLifecycle`.
+    pub async fn handle_update_work_item_lifecycle(
+        &self,
+        envelope: WorkCommandEnvelope<UpdateWorkItemLifecycleRequest>,
+    ) -> Result<WorkItemCommandResult, WorkProtocolError> {
+        self.workitem_service
+            .update_lifecycle(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
 }
 
 #[cfg(test)]
@@ -117,23 +209,28 @@ mod tests {
     use super::WorkCommandHandlers;
     use work_application::{
         BacklogRepository, CommandResultRepository, ProjectCommandService,
-        ProjectMemberCommandService,
+        ProjectMemberCommandService, WorkItemCommandService,
     };
     use work_contracts::metadata::fixtures;
     use work_contracts::{
-        AssignProjectMemberRequest, BacklogAvailabilityTarget, BacklogState, CreateProjectRequest,
+        AssignProjectMemberRequest, BacklogAvailabilityTarget, BacklogState,
+        CreateChildWorkItemRequest, CreateProjectRequest, CreateWorkItemRequest,
         IdempotencyResultView, ProjectLifecycleReason, ProjectLifecycleReasonKind,
         ProjectLifecycleState, ProjectLifecycleTarget, ProjectMemberReason,
         ProjectMemberReasonKind, ProjectMemberResponsibilityState, ResponsibilityTarget,
         UpdateBacklogAvailabilityRequest, UpdateProjectLifecycleRequest,
-        UpdateProjectMemberResponsibilityRequest, WorkCommandEnvelope, WorkProtocolError,
+        UpdateProjectMemberResponsibilityRequest, UpdateWorkItemLifecycleRequest,
+        WorkCommandEnvelope, WorkItemState, WorkProtocolError,
     };
     use work_infra::clock_id::{DeterministicWorkIdGenerator, FixedClock};
     use work_infra::command_result_store::InMemoryCommandResultRepository;
     use work_infra::idempotency_store::InMemoryIdempotencyRepository;
     use work_infra::outbox_store::InMemoryWorkOutboxRepository;
     use work_infra::repositories::InMemoryWorkStores;
-    use work_infra::source_resolvers::{FakeMemberReferencePort, MemberResolverOutcome};
+    use work_infra::source_resolvers::{
+        EvidenceResolverOutcome, FakeEvidenceResolverPort, FakeMemberReferencePort,
+        FakeSourceWorkResolverPort, MemberResolverOutcome, SourceResolverOutcome,
+    };
 
     type TestHandlers = WorkCommandHandlers<
         ProjectCommandService<
@@ -162,6 +259,22 @@ mod tests {
             FixedClock,
             InMemoryIdempotencyRepository,
         >,
+        WorkItemCommandService<
+            InMemoryWorkStores,
+            InMemoryWorkStores,
+            InMemoryWorkStores,
+            InMemoryWorkStores,
+            InMemoryWorkStores,
+            InMemoryWorkOutboxRepository,
+            InMemoryCommandResultRepository,
+            InMemoryWorkStores,
+            InMemoryWorkStores,
+            FakeSourceWorkResolverPort,
+            FakeEvidenceResolverPort,
+            DeterministicWorkIdGenerator,
+            FixedClock,
+            InMemoryIdempotencyRepository,
+        >,
     >;
 
     fn build_handlers() -> (
@@ -171,12 +284,16 @@ mod tests {
         InMemoryCommandResultRepository,
         InMemoryIdempotencyRepository,
         FakeMemberReferencePort,
+        FakeSourceWorkResolverPort,
+        FakeEvidenceResolverPort,
     ) {
         let stores = InMemoryWorkStores::new();
         let outbox = InMemoryWorkOutboxRepository::new();
         let results = InMemoryCommandResultRepository::new();
         let idempotency = InMemoryIdempotencyRepository::new();
         let member_refs = FakeMemberReferencePort::new();
+        let source_refs = FakeSourceWorkResolverPort::new();
+        let evidence_refs = FakeEvidenceResolverPort::new();
         let ids = DeterministicWorkIdGenerator::new();
         let clock = FixedClock::new(Timestamp::new("2026-06-05T09:00:00Z"));
         let project_service = ProjectCommandService {
@@ -201,17 +318,35 @@ mod tests {
             projection_repo: stores.clone(),
             unit_of_work: stores.clone(),
             member_refs: member_refs.clone(),
+            ids: ids.clone(),
+            clock: clock.clone(),
+            idempotency: idempotency.clone(),
+        };
+        let workitem_service = WorkItemCommandService {
+            project_repo: stores.clone(),
+            backlog_repo: stores.clone(),
+            member_repo: stores.clone(),
+            work_repo: stores.clone(),
+            audit_repo: stores.clone(),
+            outbox_repo: outbox.clone(),
+            command_results: results.clone(),
+            projection_repo: stores.clone(),
+            unit_of_work: stores.clone(),
+            source_resolver: source_refs.clone(),
+            evidence_resolver: evidence_refs.clone(),
             ids,
             clock,
             idempotency: idempotency.clone(),
         };
         (
-            WorkCommandHandlers::new(project_service, member_service),
+            WorkCommandHandlers::new(project_service, member_service, workitem_service),
             stores,
             outbox,
             results,
             idempotency,
             member_refs,
+            source_refs,
+            evidence_refs,
         )
     }
 
@@ -249,9 +384,36 @@ mod tests {
             .await
     }
 
+    async fn prepare_formal_work_context(
+        handlers: &TestHandlers,
+        member_refs: &FakeMemberReferencePort,
+    ) -> (
+        work_contracts::ProjectCommandResult,
+        work_contracts::ProjectMemberCommandResult,
+    ) {
+        let created = create_project(handlers, "idem-formal-project").await;
+        member_refs.seed(
+            fixtures::global_member_ref(),
+            MemberResolverOutcome::Success(fixtures::capability_ref_set()),
+        );
+        let assigned = assign_member(handlers, created.project_ref.clone(), "idem-formal-member")
+            .await
+            .expect("assign should succeed");
+        (created, assigned)
+    }
+
     #[tokio::test]
     async fn tc_work_member_001_assign_project_member_persists_member_snapshot_and_side_effects() {
-        let (handlers, stores, outbox, results, _idempotency, member_refs) = build_handlers();
+        let (
+            handlers,
+            stores,
+            outbox,
+            results,
+            _idempotency,
+            member_refs,
+            _source_refs,
+            _evidence_refs,
+        ) = build_handlers();
         let created = create_project(&handlers, "idem-member-001-project").await;
         member_refs.seed(
             fixtures::global_member_ref(),
@@ -293,7 +455,16 @@ mod tests {
 
     #[tokio::test]
     async fn tc_work_member_002_identity_resolver_unresolved_or_unavailable_does_not_save_truth() {
-        let (handlers, stores, outbox, _results, _idempotency, member_refs) = build_handlers();
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            member_refs,
+            _source_refs,
+            _evidence_refs,
+        ) = build_handlers();
         let created = create_project(&handlers, "idem-member-002-project").await;
         member_refs.seed(
             fixtures::global_member_ref(),
@@ -341,7 +512,16 @@ mod tests {
 
     #[tokio::test]
     async fn tc_work_member_003_body_leak_rejects_identity_truth_takeover() {
-        let (handlers, stores, outbox, _results, _idempotency, member_refs) = build_handlers();
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            member_refs,
+            _source_refs,
+            _evidence_refs,
+        ) = build_handlers();
         let created = create_project(&handlers, "idem-member-003-project").await;
         member_refs.seed(
             fixtures::global_member_ref(),
@@ -365,7 +545,16 @@ mod tests {
 
     #[tokio::test]
     async fn tc_work_member_004_released_member_cannot_return_to_active() {
-        let (handlers, stores, outbox, _results, _idempotency, member_refs) = build_handlers();
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            member_refs,
+            _source_refs,
+            _evidence_refs,
+        ) = build_handlers();
         let created = create_project(&handlers, "idem-member-004-project").await;
         member_refs.seed(
             fixtures::global_member_ref(),
@@ -428,8 +617,387 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn tc_work_formal_001_create_work_item_persists_truth_membership_and_side_effects() {
+        let (
+            handlers,
+            stores,
+            outbox,
+            results,
+            _idempotency,
+            member_refs,
+            source_refs,
+            _evidence_refs,
+        ) = build_handlers();
+        let (created, assigned) = prepare_formal_work_context(&handlers, &member_refs).await;
+        source_refs.seed(
+            fixtures::source_work_ref(),
+            SourceResolverOutcome::Success {
+                has_external_body: false,
+            },
+        );
+
+        let result = handlers
+            .handle_create_work_item(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-formal-001"),
+                command: CreateWorkItemRequest {
+                    project_ref: created.project_ref.clone(),
+                    work_intent: work_contracts::FormalWorkIntent {
+                        assignee_ref: assigned.project_member_ref.clone(),
+                        ..fixtures::formal_work_intent()
+                    },
+                    source_ref: fixtures::source_work_ref(),
+                },
+            })
+            .await
+            .expect("create_work_item should succeed");
+
+        assert_eq!(result.work_state, WorkItemState::Formalized);
+        assert_eq!(result.receipt.idempotency, IdempotencyResultView::Applied);
+        assert_eq!(stores.trace_count(), 3);
+        assert_eq!(stores.stale_mark_count(), 3);
+        assert_eq!(outbox.count(), 3);
+        assert!(
+            results
+                .get_result(result.receipt.result_ref.clone())
+                .await
+                .expect("stored result read should succeed")
+                .is_some()
+        );
+
+        let backlog = stores
+            .get_by_project(created.project_ref.clone())
+            .await
+            .expect("backlog lookup should succeed")
+            .expect("backlog should exist");
+        let membership = stores.backlog_membership(&backlog.backlog_ref());
+        assert_eq!(membership, vec![result.work_ref.clone()]);
+
+        let (work_item, version) = stores
+            .work_item_snapshot(&result.work_ref)
+            .expect("work item should be stored");
+        assert_eq!(work_item.assignee_ref, assigned.project_member_ref);
+        assert_eq!(work_item.work_state, WorkItemState::Formalized);
+        assert_eq!(version, 1);
+    }
+
+    #[tokio::test]
+    async fn tc_work_formal_002_external_body_rejected_without_work_truth_write() {
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            member_refs,
+            source_refs,
+            _evidence_refs,
+        ) = build_handlers();
+        let (created, assigned) = prepare_formal_work_context(&handlers, &member_refs).await;
+        source_refs.seed(
+            fixtures::source_work_ref(),
+            SourceResolverOutcome::Success {
+                has_external_body: true,
+            },
+        );
+
+        let error = handlers
+            .handle_create_work_item(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-formal-002"),
+                command: CreateWorkItemRequest {
+                    project_ref: created.project_ref.clone(),
+                    work_intent: work_contracts::FormalWorkIntent {
+                        assignee_ref: assigned.project_member_ref,
+                        ..fixtures::formal_work_intent()
+                    },
+                    source_ref: fixtures::source_work_ref(),
+                },
+            })
+            .await
+            .expect_err("body leak should be rejected");
+
+        assert_eq!(error, WorkProtocolError::DomainRejected);
+        let backlog = stores
+            .get_by_project(created.project_ref)
+            .await
+            .expect("backlog lookup should succeed")
+            .expect("backlog should exist");
+        assert!(stores.backlog_membership(&backlog.backlog_ref()).is_empty());
+        assert_eq!(stores.trace_count(), 2);
+        assert_eq!(stores.stale_mark_count(), 2);
+        assert_eq!(outbox.count(), 2);
+    }
+
+    #[tokio::test]
+    async fn tc_work_formal_003_locked_backlog_rejects_new_work_item() {
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            member_refs,
+            source_refs,
+            _evidence_refs,
+        ) = build_handlers();
+        let (created, assigned) = prepare_formal_work_context(&handlers, &member_refs).await;
+        source_refs.seed(
+            fixtures::source_work_ref(),
+            SourceResolverOutcome::Success {
+                has_external_body: false,
+            },
+        );
+        let backlog_ref = stores
+            .get_by_project(created.project_ref.clone())
+            .await
+            .expect("backlog lookup should succeed")
+            .expect("backlog should exist")
+            .backlog_ref();
+        handlers
+            .handle_update_backlog_availability(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-formal-003-lock"),
+                command: UpdateBacklogAvailabilityRequest {
+                    backlog_ref: backlog_ref.clone(),
+                    target: BacklogAvailabilityTarget::LockedForMaintenance,
+                    reason: work_contracts::BacklogMaintenanceReason {
+                        reason_kind:
+                            work_contracts::BacklogMaintenanceReasonKind::MaintenanceWindow,
+                        reason_ref: None,
+                    },
+                    expected_version: 1,
+                },
+            })
+            .await
+            .expect("lock should succeed");
+
+        let error = handlers
+            .handle_create_work_item(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-formal-003"),
+                command: CreateWorkItemRequest {
+                    project_ref: created.project_ref,
+                    work_intent: work_contracts::FormalWorkIntent {
+                        assignee_ref: assigned.project_member_ref,
+                        ..fixtures::formal_work_intent()
+                    },
+                    source_ref: fixtures::source_work_ref(),
+                },
+            })
+            .await
+            .expect_err("locked backlog should reject formal work create");
+
+        assert_eq!(error, WorkProtocolError::DomainRejected);
+        assert!(stores.backlog_membership(&backlog_ref).is_empty());
+        assert_eq!(stores.trace_count(), 3);
+        assert_eq!(stores.stale_mark_count(), 3);
+        assert_eq!(outbox.count(), 3);
+    }
+
+    #[tokio::test]
+    async fn tc_work_formal_004_create_work_item_duplicate_replays_stored_result() {
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            member_refs,
+            source_refs,
+            _evidence_refs,
+        ) = build_handlers();
+        let (created, assigned) = prepare_formal_work_context(&handlers, &member_refs).await;
+        source_refs.seed(
+            fixtures::source_work_ref(),
+            SourceResolverOutcome::Success {
+                has_external_body: false,
+            },
+        );
+
+        let envelope = WorkCommandEnvelope {
+            actor: fixtures::actor_context(),
+            metadata: fixtures::command_metadata("idem-formal-004"),
+            command: CreateWorkItemRequest {
+                project_ref: created.project_ref,
+                work_intent: work_contracts::FormalWorkIntent {
+                    assignee_ref: assigned.project_member_ref,
+                    ..fixtures::formal_work_intent()
+                },
+                source_ref: fixtures::source_work_ref(),
+            },
+        };
+
+        let first = handlers
+            .handle_create_work_item(envelope.clone())
+            .await
+            .expect("first create_work_item should succeed");
+        let duplicate = handlers
+            .handle_create_work_item(envelope)
+            .await
+            .expect("duplicate create_work_item should replay stored result");
+
+        assert_eq!(first.work_ref, duplicate.work_ref);
+        assert_eq!(first.work_state, duplicate.work_state);
+        assert_eq!(first.receipt.result_ref, duplicate.receipt.result_ref);
+        assert_eq!(
+            duplicate.receipt.idempotency,
+            IdempotencyResultView::Duplicate
+        );
+        assert_eq!(stores.trace_count(), 3);
+        assert_eq!(stores.stale_mark_count(), 3);
+        assert_eq!(outbox.count(), 3);
+    }
+
+    #[tokio::test]
+    async fn tc_work_formal_005_child_create_and_invalid_parent_lifecycle_completion() {
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            member_refs,
+            source_refs,
+            evidence_refs,
+        ) = build_handlers();
+        let (created, assigned) = prepare_formal_work_context(&handlers, &member_refs).await;
+        source_refs.seed(
+            fixtures::source_work_ref(),
+            SourceResolverOutcome::Success {
+                has_external_body: false,
+            },
+        );
+
+        let parent = handlers
+            .handle_create_work_item(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-formal-005-parent"),
+                command: CreateWorkItemRequest {
+                    project_ref: created.project_ref.clone(),
+                    work_intent: work_contracts::FormalWorkIntent {
+                        assignee_ref: assigned.project_member_ref.clone(),
+                        ..fixtures::formal_work_intent()
+                    },
+                    source_ref: fixtures::source_work_ref(),
+                },
+            })
+            .await
+            .expect("parent create should succeed");
+
+        let child = handlers
+            .handle_create_child_work_item(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-formal-005-child"),
+                command: CreateChildWorkItemRequest {
+                    parent_ref: parent.work_ref.clone(),
+                    work_intent: work_contracts::FormalWorkIntent {
+                        assignee_ref: assigned.project_member_ref.clone(),
+                        ..fixtures::child_work_intent()
+                    },
+                    source_ref: fixtures::source_work_ref(),
+                },
+            })
+            .await
+            .expect("child create should succeed");
+        assert_eq!(child.work_state, WorkItemState::Formalized);
+        let (_stored_child, child_version) = stores
+            .child_work_item_snapshot(&child.work_ref)
+            .expect("child should be stored");
+        assert_eq!(child_version, 1);
+
+        let invalid_parent = handlers
+            .handle_create_child_work_item(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-formal-005-invalid-parent"),
+                command: CreateChildWorkItemRequest {
+                    parent_ref: child.work_ref.clone(),
+                    work_intent: work_contracts::FormalWorkIntent {
+                        assignee_ref: assigned.project_member_ref.clone(),
+                        ..fixtures::child_work_intent()
+                    },
+                    source_ref: fixtures::source_work_ref(),
+                },
+            })
+            .await
+            .expect_err("child parent should be rejected");
+        assert_eq!(invalid_parent, WorkProtocolError::DomainRejected);
+
+        handlers
+            .handle_update_work_item_lifecycle(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-formal-005-parent-start"),
+                command: UpdateWorkItemLifecycleRequest {
+                    work_ref: parent.work_ref.clone(),
+                    target: work_contracts::WorkLifecycleTarget::InProgress,
+                    reason: fixtures::start_work_reason(),
+                    evidence_ref: None,
+                    expected_version: 1,
+                },
+            })
+            .await
+            .expect("parent start should succeed");
+
+        let missing_evidence = handlers
+            .handle_update_work_item_lifecycle(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-formal-005-missing-evidence"),
+                command: UpdateWorkItemLifecycleRequest {
+                    work_ref: parent.work_ref.clone(),
+                    target: work_contracts::WorkLifecycleTarget::Completed,
+                    reason: fixtures::completion_work_reason(),
+                    evidence_ref: None,
+                    expected_version: 2,
+                },
+            })
+            .await
+            .expect_err("completion without evidence should fail");
+        assert_eq!(missing_evidence, WorkProtocolError::InvalidRequest);
+
+        evidence_refs.seed(
+            fixtures::completion_evidence_ref(),
+            EvidenceResolverOutcome::Success,
+        );
+        let completed = handlers
+            .handle_update_work_item_lifecycle(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-formal-005-complete"),
+                command: UpdateWorkItemLifecycleRequest {
+                    work_ref: parent.work_ref.clone(),
+                    target: work_contracts::WorkLifecycleTarget::Completed,
+                    reason: fixtures::completion_work_reason(),
+                    evidence_ref: Some(fixtures::completion_evidence_ref()),
+                    expected_version: 2,
+                },
+            })
+            .await
+            .expect("completion with verified evidence should succeed");
+        assert_eq!(completed.work_state, WorkItemState::Completed);
+        let (stored_parent, parent_version) = stores
+            .work_item_snapshot(&parent.work_ref)
+            .expect("parent should be stored");
+        assert_eq!(
+            stored_parent.completion_ref,
+            Some(fixtures::completion_evidence_ref())
+        );
+        assert_eq!(parent_version, 3);
+        assert_eq!(stores.trace_count(), 6);
+        assert_eq!(stores.stale_mark_count(), 6);
+        assert_eq!(outbox.count(), 6);
+    }
+
+    #[tokio::test]
     async fn tc_work_core_001_create_project_persists_project_backlog_and_side_effects() {
-        let (handlers, stores, outbox, results, _idempotency, _member_refs) = build_handlers();
+        let (
+            handlers,
+            stores,
+            outbox,
+            results,
+            _idempotency,
+            _member_refs,
+            _source_refs,
+            _evidence_refs,
+        ) = build_handlers();
         let envelope = WorkCommandEnvelope {
             actor: fixtures::actor_context(),
             metadata: fixtures::command_metadata("idem-core-001"),
@@ -473,7 +1041,16 @@ mod tests {
 
     #[tokio::test]
     async fn tc_work_core_002_missing_project_write_does_not_implicitly_create_truth() {
-        let (handlers, stores, outbox, _results, _idempotency, _member_refs) = build_handlers();
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            _member_refs,
+            _source_refs,
+            _evidence_refs,
+        ) = build_handlers();
         let envelope = WorkCommandEnvelope {
             actor: fixtures::actor_context(),
             metadata: fixtures::command_metadata("idem-core-002"),
@@ -502,7 +1079,16 @@ mod tests {
 
     #[tokio::test]
     async fn tc_work_core_003_update_project_lifecycle_archives_backlog() {
-        let (handlers, stores, outbox, _results, _idempotency, _member_refs) = build_handlers();
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            _member_refs,
+            _source_refs,
+            _evidence_refs,
+        ) = build_handlers();
         let create = WorkCommandEnvelope {
             actor: fixtures::actor_context(),
             metadata: fixtures::command_metadata("idem-core-003-create"),
@@ -579,7 +1165,16 @@ mod tests {
 
     #[tokio::test]
     async fn tc_work_core_004_create_project_duplicate_replays_stored_result() {
-        let (handlers, stores, outbox, _results, _idempotency, _member_refs) = build_handlers();
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            _member_refs,
+            _source_refs,
+            _evidence_refs,
+        ) = build_handlers();
         let envelope = WorkCommandEnvelope {
             actor: fixtures::actor_context(),
             metadata: fixtures::command_metadata("idem-core-004"),
@@ -621,7 +1216,16 @@ mod tests {
 
     #[tokio::test]
     async fn duplicate_missing_result_surface_maps_to_temporarily_unavailable() {
-        let (handlers, stores, outbox, results, _idempotency, _member_refs) = build_handlers();
+        let (
+            handlers,
+            stores,
+            outbox,
+            results,
+            _idempotency,
+            _member_refs,
+            _source_refs,
+            _evidence_refs,
+        ) = build_handlers();
         let envelope = WorkCommandEnvelope {
             actor: fixtures::actor_context(),
             metadata: fixtures::command_metadata("idem-core-004-missing"),
@@ -648,7 +1252,16 @@ mod tests {
 
     #[tokio::test]
     async fn update_backlog_availability_locks_and_reopens_backlog() {
-        let (handlers, stores, outbox, _results, _idempotency, _member_refs) = build_handlers();
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            _member_refs,
+            _source_refs,
+            _evidence_refs,
+        ) = build_handlers();
         let create = WorkCommandEnvelope {
             actor: fixtures::actor_context(),
             metadata: fixtures::command_metadata("idem-core-backlog-create"),
@@ -713,7 +1326,16 @@ mod tests {
 
     #[tokio::test]
     async fn invalid_request_maps_to_protocol_error_without_side_effects() {
-        let (handlers, stores, outbox, _results, _idempotency, _member_refs) = build_handlers();
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            _member_refs,
+            _source_refs,
+            _evidence_refs,
+        ) = build_handlers();
         let envelope = WorkCommandEnvelope {
             actor: fixtures::actor_context(),
             metadata: core_contracts::metadata::CommandMetadata {

@@ -4,10 +4,11 @@ use core_contracts::actor::ActorRef;
 
 use crate::{Backlog, DomainError, Project};
 use work_contracts::{
-    BacklogAvailabilityTarget, BacklogMaintenanceReason, ExternalSourceSummary, FormalWorkIntent,
-    GlobalMemberRef, ProjectLifecycleReason, ProjectLifecycleTarget, ProjectResponsibilitySpec,
-    SourceWorkKind, SourceWorkRef, WorkLifecycleReason, WorkLifecycleReasonKind, WorkPolicyScope,
-    WorkTruthChange, WorkTruthSnapshot,
+    BacklogAvailabilityTarget, BacklogMaintenanceReason, EvidenceVerifiedState,
+    ExternalEvidenceRef, ExternalSourceSummary, FormalWorkIntent, FormalWorkRef, GlobalMemberRef,
+    ProjectLifecycleReason, ProjectLifecycleTarget, ProjectResponsibilitySpec, SourceWorkKind,
+    SourceWorkRef, WorkLifecycleReason, WorkLifecycleReasonKind, WorkPolicyScope, WorkTruthChange,
+    WorkTruthSnapshot,
 };
 
 /// Guards Work truth ownership and forbidden-body invariants.
@@ -141,6 +142,22 @@ impl FormalWorkPolicy {
             | SourceWorkKind::Artifact
             | SourceWorkKind::Governance => Ok(()),
         }
+    }
+}
+
+/// Guards evidence references used to complete or close formal work.
+pub struct CompletionEvidencePolicy;
+
+impl CompletionEvidencePolicy {
+    /// Validates that one evidence reference can support a formal work completion.
+    pub fn assert_completion_evidence(
+        _work_ref: FormalWorkRef,
+        evidence_ref: ExternalEvidenceRef,
+    ) -> Result<(), DomainError> {
+        if evidence_ref.verified_state != EvidenceVerifiedState::Verified {
+            return Err(DomainError::PolicyRejected);
+        }
+        Ok(())
     }
 }
 

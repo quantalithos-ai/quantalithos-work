@@ -8,8 +8,8 @@ mod project;
 pub use audit::{TraceHandoffMarker, WorkAuditTrail, WorkOutboxRecord, WorkTraceRecord};
 pub use errors::DomainError;
 pub use policies::{
-    BacklogAvailabilityPolicy, FormalWorkPolicy, MemberResponsibilityPolicy,
-    ProjectLifecyclePolicy, WorkTruthPolicy,
+    BacklogAvailabilityPolicy, CompletionEvidencePolicy, FormalWorkPolicy,
+    MemberResponsibilityPolicy, ProjectLifecyclePolicy, WorkTruthPolicy,
 };
 pub use project::{
     Backlog, ChildWorkItem, MemberCapabilitySnapshot, Project, ProjectMember,

@@ -12,7 +12,8 @@ pub use commands::{
     CreateProjectRequest, CreateWorkItemRequest, IdempotencyResultView, ProjectCommandResult,
     ProjectMemberCommandResult, ProjectResponsibilitySpec, ProjectSpec,
     UpdateBacklogAvailabilityRequest, UpdateProjectLifecycleRequest,
-    UpdateProjectMemberResponsibilityRequest, WorkCommandEnvelope, WorkItemCommandResult,
+    UpdateProjectMemberResponsibilityRequest, UpdateWorkItemLifecycleRequest, WorkCommandEnvelope,
+    WorkItemCommandResult,
 };
 pub use errors::WorkProtocolError;
 pub use handoff::{ApplicationResultRef, WorkCommandReceipt, WorkTraceContextRef};
@@ -50,7 +51,7 @@ mod tests {
         CreateProjectRequest, CreateWorkItemRequest, IdempotencyResultView, ProjectCommandResult,
         ProjectMemberCommandResult, UpdateBacklogAvailabilityRequest,
         UpdateProjectLifecycleRequest, UpdateProjectMemberResponsibilityRequest,
-        WorkCommandEnvelope, WorkItemCommandResult,
+        UpdateWorkItemLifecycleRequest, WorkCommandEnvelope, WorkItemCommandResult,
     };
     use super::handoff::{WorkCommandReceipt, WorkTraceContextRef};
     use super::metadata::fixtures;
@@ -122,6 +123,13 @@ mod tests {
             parent_ref: fixtures::formal_work_ref(),
             work_intent: fixtures::child_work_intent(),
             source_ref: fixtures::source_work_ref(),
+        });
+        roundtrip(&UpdateWorkItemLifecycleRequest {
+            work_ref: fixtures::formal_work_ref(),
+            target: WorkLifecycleTarget::Completed,
+            reason: fixtures::completion_work_reason(),
+            evidence_ref: Some(fixtures::completion_evidence_ref()),
+            expected_version: 7,
         });
     }
 
