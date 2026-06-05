@@ -1,0 +1,84 @@
+{
+  "store": {
+    "adapter_kind": "in_memory",
+    "transaction_timeout": "5s",
+    "project_owner_uniqueness": "not_unique"
+  },
+  "boundary": {
+    "max_command_body_bytes": 1048576,
+    "max_page_limit": 100,
+    "query_read_timeout": "2s"
+  },
+  "idempotency": {
+    "command_retention": "24h",
+    "event_dedup_retention": "7d",
+    "reserved_record_max_age": "15m"
+  },
+  "projection": {
+    "adapter_kind": "in_memory",
+    "stale_threshold": "60s",
+    "replace_scope": "project_projection_set"
+  },
+  "jobs": {
+    "default_batch_size": 100,
+    "max_parallelism": 1,
+    "retry_limit": 3,
+    "job_timeout": "300s"
+  },
+  "external": {
+    "identity": {
+      "adapter_kind": "configured",
+      "endpoint_ref": "EndpointRef(identity-local)",
+      "credential_ref": "CredentialRef(identity-fixture)"
+    },
+    "method_library": {
+      "adapter_kind": "configured",
+      "endpoint_ref": "EndpointRef(method-library-local)",
+      "credential_ref": "CredentialRef(method-library-fixture)"
+    },
+    "source_work": {
+      "adapter_kind": "configured",
+      "endpoint_ref": "EndpointRef(source-work-local)",
+      "credential_ref": "CredentialRef(source-work-fixture)"
+    },
+    "evidence": {
+      "adapter_kind": "configured",
+      "endpoint_ref": "EndpointRef(evidence-local)",
+      "credential_ref": "CredentialRef(evidence-fixture)"
+    },
+    "process_timebox": {
+      "adapter_kind": "configured",
+      "endpoint_ref": "EndpointRef(process-timebox-local)",
+      "credential_ref": "CredentialRef(process-timebox-fixture)"
+    }
+  },
+  "outbox": {
+    "publish_batch_size": 100,
+    "publish_retry": {
+      "max_attempts": 3,
+      "base_delay": "1s",
+      "max_delay": "30s"
+    },
+    "publisher": {
+      "adapter_kind": "configured",
+      "endpoint_ref": "EndpointRef(bus-local)",
+      "credential_ref": "CredentialRef(bus-fixture)"
+    }
+  },
+  "handoff": {
+    "trace_target": {
+      "adapter_kind": "configured",
+      "target_ref": "HandoffTargetRef(trace-local)",
+      "credential_ref": "CredentialRef(trace-fixture)"
+    },
+    "archive_target": {
+      "adapter_kind": "configured",
+      "target_ref": "HandoffTargetRef(archive-local)",
+      "credential_ref": "CredentialRef(archive-fixture)"
+    }
+  },
+  "features": {
+    "derived_views_enabled": true,
+    "advanced_search_enabled": false
+  }
+}
