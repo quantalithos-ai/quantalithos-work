@@ -8,6 +8,10 @@ name = "work_application"
 path = "src/lib.rs"
 
 [dependencies]
+async-trait = "0.1"
 core-contracts.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
 work-contracts = { path = "../contracts" }
 work-domain = { path = "../domain" }

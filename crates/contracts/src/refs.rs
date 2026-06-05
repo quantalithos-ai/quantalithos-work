@@ -15,6 +15,10 @@ macro_rules! string_newtype {
 
 string_newtype!(ProjectId, "Identifies a Work-owned project subject.");
 string_newtype!(BacklogId, "Identifies a Work-owned backlog.");
+string_newtype!(
+    WorkTruthCursor,
+    "Committed Work truth source position used by stale markers and rebuilds."
+);
 string_newtype!(WorkTraceId, "Identifies a Work trace record.");
 string_newtype!(WorkAuditTrailId, "Identifies a Work audit trail.");
 string_newtype!(WorkOutboxId, "Identifies a Work outbox record.");
@@ -34,6 +38,14 @@ string_newtype!(
     "Publication reference returned by the outbox publisher."
 );
 
+/// Derived view category.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DerivedWorkViewKind {
+    /// Project board projection.
+    ProjectBoard,
+}
+
 /// References a Work-owned project subject across APIs and events.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ProjectRef {
@@ -46,6 +58,32 @@ pub struct ProjectRef {
 pub struct BacklogRef {
     /// Stable backlog id.
     pub backlog_id: BacklogId,
+}
+
+/// Scope used to derive a stable projection key.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum DerivedWorkViewScopeRef {
+    /// Project-scoped view.
+    Project(ProjectRef),
+}
+
+/// Stable reference to one derived Work view freshness marker.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DerivedWorkViewRef {
+    /// Derived view category.
+    pub view_kind: DerivedWorkViewKind,
+    /// Stable scope that owns this derived view.
+    pub scope_ref: DerivedWorkViewScopeRef,
+}
+
+impl DerivedWorkViewRef {
+    /// Builds the project board derived view ref for one project.
+    pub fn project_board(project_ref: ProjectRef) -> Self {
+        Self {
+            view_kind: DerivedWorkViewKind::ProjectBoard,
+            scope_ref: DerivedWorkViewScopeRef::Project(project_ref),
+        }
+    }
 }
 
 /// Opaque pointer to an external source boundary.

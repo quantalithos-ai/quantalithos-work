@@ -17,13 +17,15 @@ pub use handoff::{ApplicationResultRef, WorkCommandReceipt, WorkTraceContextRef}
 pub use metadata::fixtures;
 pub use refs::{
     ArchiveHandoffRef, BacklogId, BacklogMaintenanceReason, BacklogMaintenanceReasonKind,
-    BacklogRef, ExternalEvidenceRef, ExternalSourceRef, ExternalSourceSystem, OutboxFailureReason,
+    BacklogRef, DerivedWorkViewKind, DerivedWorkViewRef, DerivedWorkViewScopeRef,
+    ExternalEvidenceRef, ExternalSourceRef, ExternalSourceSystem, OutboxFailureReason,
     OutboxFailureReasonKind, OutboxPublicationRef, OutboxRetryReason, ProjectId,
     ProjectLifecycleReason, ProjectLifecycleReasonKind, ProjectLifecycleTarget, ProjectOwnerKind,
     ProjectOwnerRef, ProjectRef, ResultId, SafeSummaryText, SourceDigest, SourceWorkKind,
     SourceWorkRef, TraceHandoffIntent, TraceHandoffRef, TraceHandoffTargetKind,
     TraceHandoffTargetRef, WorkAuditSubjectRef, WorkAuditTrailId, WorkOutboxEventKind,
     WorkOutboxId, WorkTraceId, WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange,
+    WorkTruthCursor,
 };
 pub use states::{
     BacklogAvailabilityTarget, BacklogState, OutboxPublicationState, ProjectLifecycleState,

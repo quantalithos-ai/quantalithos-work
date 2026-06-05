@@ -1,6 +1,11 @@
 //! Infrastructure adapters for the Work bounded context.
 
+pub mod clock_id;
+pub mod command_result_store;
 pub mod config;
+pub mod idempotency_store;
+pub mod outbox_store;
+pub mod repositories;
 pub mod runtime_builder;
 
 use core_contracts as _;

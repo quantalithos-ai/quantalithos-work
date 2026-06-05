@@ -85,6 +85,15 @@ pub struct ProjectCommandResult {
     pub receipt: WorkCommandReceipt,
 }
 
+impl ProjectCommandResult {
+    /// Returns a duplicate replay view while preserving the stored result surface.
+    pub fn with_duplicate_receipt(&self) -> Self {
+        let mut result = self.clone();
+        result.receipt = result.receipt.with_duplicate_overlay();
+        result
+    }
+}
+
 /// Result returned by backlog commands.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct BacklogCommandResult {
@@ -94,4 +103,13 @@ pub struct BacklogCommandResult {
     pub backlog_state: BacklogState,
     /// Shared write receipt.
     pub receipt: WorkCommandReceipt,
+}
+
+impl BacklogCommandResult {
+    /// Returns a duplicate replay view while preserving the stored result surface.
+    pub fn with_duplicate_receipt(&self) -> Self {
+        let mut result = self.clone();
+        result.receipt = result.receipt.with_duplicate_overlay();
+        result
+    }
 }
