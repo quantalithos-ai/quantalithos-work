@@ -1,0 +1,13 @@
+[package]
+name = "work-application"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "work_application"
+path = "src/lib.rs"
+
+[dependencies]
+core-contracts.workspace = true
+work-contracts = { path = "../contracts" }
+work-domain = { path = "../domain" }

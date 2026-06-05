@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "crates/contracts",
+    "crates/domain",
+    "crates/application",
+    "crates/infra",
+    "crates/api",
+    "crates/worker",
+    "crates/jobs",
+]
+resolver = "2"
+
+[workspace.dependencies]
+core-contracts = { path = "../quantalithos-core/crates/contracts" }

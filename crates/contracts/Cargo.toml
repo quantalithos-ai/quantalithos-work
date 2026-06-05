@@ -1,0 +1,11 @@
+[package]
+name = "work-contracts"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "work_contracts"
+path = "src/lib.rs"
+
+[dependencies]
+core-contracts.workspace = true
