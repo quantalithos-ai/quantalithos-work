@@ -3,6 +3,7 @@
 mod audit;
 mod dependency;
 mod errors;
+mod iteration;
 mod policies;
 mod project;
 mod promote;
@@ -13,9 +14,11 @@ pub use dependency::{
     WorkDependency,
 };
 pub use errors::DomainError;
+pub use iteration::{Iteration, IterationChangeRecord, IterationCommitment};
 pub use policies::{
     BacklogAvailabilityPolicy, CompletionEvidencePolicy, FormalWorkPolicy,
-    MemberResponsibilityPolicy, ProjectLifecyclePolicy, PromotePolicy, WorkTruthPolicy,
+    IterationCommitmentPolicy, MemberResponsibilityPolicy, ProjectLifecyclePolicy, PromotePolicy,
+    WorkTruthPolicy,
 };
 pub use project::{
     Backlog, ChildWorkItem, MemberCapabilitySnapshot, Project, ProjectMember,
@@ -29,19 +32,20 @@ mod tests {
 
     use crate::{
         Backlog, ChildWorkItem, DependencyChangeRecord, DependencyGraphPolicy,
-        DependencyGraphSnapshot, DomainError, FormalWorkPolicy, MemberCapabilitySnapshot,
+        DependencyGraphSnapshot, DomainError, FormalWorkPolicy, Iteration, IterationChangeRecord,
+        IterationCommitment, IterationCommitmentPolicy, MemberCapabilitySnapshot,
         PendingPromoteIntake, Project, ProjectMember, PromoteDecisionRecord, PromoteResult,
         TraceHandoffMarker, WorkAuditTrail, WorkBlocker, WorkDependency, WorkItem,
         WorkOutboxRecord, WorkTraceRecord, WorkTruthPolicy,
     };
     use work_contracts::{
         BacklogAvailabilityTarget, BacklogMaintenanceReason, BacklogMaintenanceReasonKind,
-        DependencyChangeId, DependencyOrBlockerRef, ExternalSourceSummary, OutboxPublicationState,
-        ProjectLifecycleReason, ProjectLifecycleReasonKind, ProjectLifecycleState,
-        ProjectLifecycleTarget, ProjectMemberReason, ProjectMemberReasonKind,
-        ProjectMemberResponsibilityState, PromoteDecisionId, PromoteResultState,
-        TraceHandoffTargetKind, TraceHandoffTargetRef, WorkAuditSubjectRef, WorkLifecycleTarget,
-        WorkOutboxEventKind, WorkTraceSubjectRef, WorkTruthChange, fixtures,
+        CommitmentState, DependencyChangeId, DependencyOrBlockerRef, ExternalSourceSummary,
+        IterationState, OutboxPublicationState, ProjectLifecycleReason, ProjectLifecycleReasonKind,
+        ProjectLifecycleState, ProjectLifecycleTarget, ProjectMemberReason,
+        ProjectMemberReasonKind, ProjectMemberResponsibilityState, PromoteDecisionId,
+        PromoteResultState, TraceHandoffTargetKind, TraceHandoffTargetRef, WorkAuditSubjectRef,
+        WorkLifecycleTarget, WorkOutboxEventKind, WorkTraceSubjectRef, WorkTruthChange, fixtures,
     };
 
     fn actor() -> ActorRef {
@@ -594,6 +598,7 @@ mod tests {
     fn dependency_graph_policy_rejects_self_edge_cycle_and_terminal_reopen() {
         let actor = actor();
         let policy = DependencyGraphPolicy::from_graph(DependencyGraphSnapshot {
+            project_ref: fixtures::project_ref(),
             dependency_edges: vec![(
                 fixtures::downstream_formal_work_ref(),
                 fixtures::formal_work_ref(),
@@ -601,16 +606,19 @@ mod tests {
             active_blockers: Vec::new(),
         });
 
-        let err = policy
-            .assert_can_link(fixtures::formal_work_ref(), fixtures::formal_work_ref())
+        let err = DependencyGraphPolicy::assert_can_link(
+            &policy.graph_snapshot,
+            fixtures::formal_work_ref(),
+            fixtures::formal_work_ref(),
+        )
             .expect_err("self dependency must fail");
         assert_eq!(err, DomainError::PolicyRejected);
 
-        let err = policy
-            .assert_can_link(
-                fixtures::formal_work_ref(),
-                fixtures::downstream_formal_work_ref(),
-            )
+        let err = DependencyGraphPolicy::assert_can_link(
+            &policy.graph_snapshot,
+            fixtures::formal_work_ref(),
+            fixtures::downstream_formal_work_ref(),
+        )
             .expect_err("cycle dependency must fail");
         assert_eq!(err, DomainError::PolicyRejected);
 
@@ -739,6 +747,164 @@ mod tests {
             blocker_history.relation_ref,
             DependencyOrBlockerRef::Blocker(fixtures::work_blocker_ref())
         );
+    }
+
+    #[test]
+    fn iteration_and_commitment_states_follow_matrix() {
+        let actor = actor();
+        let mut iteration = Iteration::open(
+            fixtures::iteration_ref().iteration_id.clone(),
+            fixtures::project_id(),
+            fixtures::process_timebox_ref(),
+            actor.clone(),
+        )
+        .expect("iteration open should succeed");
+        assert_eq!(iteration.iteration_state, IterationState::Planning);
+
+        IterationCommitmentPolicy::assert_commitment_allowed(
+            &iteration,
+            fixtures::formal_work_ref_set(),
+        )
+        .expect("planning iteration should accept candidates");
+
+        let mut commitment = IterationCommitment::from_candidates(
+            fixtures::iteration_commitment_id(),
+            iteration.iteration_id.clone(),
+            fixtures::formal_work_ref_set(),
+            actor.clone(),
+        )
+        .expect("candidate commitment should build");
+        assert_eq!(commitment.commitment_state, CommitmentState::Candidate);
+        assert!(commitment.contains(fixtures::formal_work_ref()));
+
+        iteration
+            .commit(&mut commitment, actor.clone())
+            .expect("planning -> committed should succeed");
+        assert_eq!(iteration.iteration_state, IterationState::Committed);
+        assert_eq!(commitment.commitment_state, CommitmentState::Committed);
+
+        commitment
+            .apply_change(
+                fixtures::iteration_commitment_change_set(),
+                fixtures::iteration_commitment_changed_reason(),
+                actor.clone(),
+            )
+            .expect("committed -> changed should succeed");
+        assert_eq!(commitment.commitment_state, CommitmentState::Changed);
+
+        iteration
+            .start(fixtures::iteration_started_reason(), actor.clone())
+            .expect("committed -> in_progress should succeed");
+        assert_eq!(iteration.iteration_state, IterationState::InProgress);
+
+        let change_record = IterationChangeRecord::from_commitment(
+            work_contracts::IterationChangeId("iter-change-1".to_owned()),
+            iteration.clone(),
+            commitment.clone(),
+            actor.clone(),
+        )
+        .expect("iteration change record should build");
+        assert_eq!(change_record.iteration_ref, fixtures::iteration_ref());
+
+        iteration
+            .close(fixtures::iteration_closed_reason(), actor.clone())
+            .expect("in_progress -> closed should succeed");
+        commitment
+            .close(fixtures::iteration_closed_reason(), actor.clone())
+            .expect("changed -> closed should succeed");
+        assert_eq!(iteration.iteration_state, IterationState::Closed);
+        assert_eq!(commitment.commitment_state, CommitmentState::Closed);
+
+        let err = iteration
+            .start(fixtures::iteration_started_reason(), actor)
+            .expect_err("closed iteration must remain terminal");
+        assert_eq!(err, DomainError::InvalidStateTransition);
+    }
+
+    #[test]
+    fn iteration_reason_guards_reject_wrong_reason_shapes() {
+        let actor = actor();
+        let mut committed_iteration = Iteration::open(
+            fixtures::iteration_ref().iteration_id.clone(),
+            fixtures::project_id(),
+            fixtures::process_timebox_ref(),
+            actor.clone(),
+        )
+        .expect("iteration open should succeed");
+        let mut committed_commitment = IterationCommitment::from_candidates(
+            fixtures::iteration_commitment_id(),
+            committed_iteration.iteration_id.clone(),
+            fixtures::formal_work_ref_set(),
+            actor.clone(),
+        )
+        .expect("candidate commitment should build");
+        committed_iteration
+            .commit(&mut committed_commitment, actor.clone())
+            .expect("commit should succeed");
+
+        let err = committed_iteration
+            .start(fixtures::iteration_cancelled_reason(), actor.clone())
+            .expect_err("wrong change reason kind should reject start");
+        assert_eq!(err, DomainError::PolicyRejected);
+
+        let mut planning_iteration = Iteration::open(
+            fixtures::iteration_ref().iteration_id.clone(),
+            fixtures::project_id(),
+            fixtures::process_timebox_ref(),
+            actor.clone(),
+        )
+        .expect("iteration open should succeed");
+        planning_iteration
+            .cancel(fixtures::iteration_cancelled_reason(), actor.clone())
+            .expect("planning -> cancelled should succeed");
+        assert_eq!(
+            planning_iteration.iteration_state,
+            IterationState::Cancelled
+        );
+
+        let mut in_progress_iteration = Iteration::open(
+            fixtures::iteration_ref().iteration_id,
+            fixtures::project_id(),
+            fixtures::process_timebox_ref(),
+            actor.clone(),
+        )
+        .expect("iteration open should succeed");
+        let mut in_progress_commitment = IterationCommitment::from_candidates(
+            fixtures::iteration_commitment_id(),
+            in_progress_iteration.iteration_id.clone(),
+            fixtures::formal_work_ref_set(),
+            actor.clone(),
+        )
+        .expect("candidate commitment should build");
+        in_progress_iteration
+            .commit(&mut in_progress_commitment, actor.clone())
+            .expect("commit should succeed");
+        in_progress_iteration
+            .start(fixtures::iteration_started_reason(), actor.clone())
+            .expect("start should succeed");
+
+        let err = in_progress_iteration
+            .close(
+                work_contracts::IterationCloseReason {
+                    reason_kind: work_contracts::IterationCloseReasonKind::Completed,
+                    reason_ref: None,
+                },
+                actor.clone(),
+            )
+            .expect_err("completed close without evidence ref should reject");
+        assert_eq!(err, DomainError::PolicyRejected);
+
+        let err = in_progress_commitment
+            .apply_change(
+                work_contracts::IterationCommitmentChangeSet {
+                    add_work_refs: Vec::new(),
+                    remove_work_refs: Vec::new(),
+                },
+                fixtures::iteration_commitment_changed_reason(),
+                actor,
+            )
+            .expect_err("empty change set should reject");
+        assert_eq!(err, DomainError::PolicyRejected);
     }
 
     #[test]
@@ -888,6 +1054,27 @@ mod tests {
             WorkOutboxEventKind::WorkBlockerChanged
         );
 
+        let iteration_trace = WorkTraceRecord::from_truth_change(
+            fixtures::trace_id(),
+            fixtures::iteration_changed_change(),
+            fixtures::trace_context_ref(),
+        )
+        .expect("iteration trace should succeed");
+        assert_eq!(
+            iteration_trace.subject_ref,
+            WorkTraceSubjectRef::Iteration(fixtures::iteration_ref())
+        );
+
+        let iteration_outbox = WorkOutboxRecord::from_truth_change(
+            fixtures::outbox_id(),
+            fixtures::iteration_changed_change(),
+        )
+        .expect("iteration outbox should succeed");
+        assert_eq!(
+            iteration_outbox.event_kind,
+            WorkOutboxEventKind::IterationChanged
+        );
+
         let mut work_audit = WorkAuditTrail::start_for_subject(WorkAuditSubjectRef::FormalWork(
             fixtures::formal_work_ref(),
         ));
@@ -908,5 +1095,12 @@ mod tests {
         relation_audit
             .append(relation_trace)
             .expect("relation audit append should succeed");
+
+        let mut iteration_audit = WorkAuditTrail::start_for_subject(
+            WorkAuditSubjectRef::Iteration(fixtures::iteration_ref()),
+        );
+        iteration_audit
+            .append(iteration_trace)
+            .expect("iteration audit append should succeed");
     }
 }

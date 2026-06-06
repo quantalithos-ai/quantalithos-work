@@ -9,14 +9,15 @@ pub mod states;
 
 pub use commands::{
     AssignProjectMemberRequest, BacklogCommandResult, BlockerCommandResult,
-    CreateChildWorkItemRequest, CreateProjectRequest, CreateWorkItemRequest,
-    DependencyCommandResult, IdempotencyResultView, LinkWorkDependencyRequest,
-    OpenWorkBlockerRequest, ProjectCommandResult, ProjectMemberCommandResult,
-    ProjectResponsibilitySpec, ProjectSpec, PromoteCommandResult, RequestWorkPromotionRequest,
-    ResolveWorkBlockerRequest, ReviewWorkPromotionRequest, UpdateBacklogAvailabilityRequest,
-    UpdateProjectLifecycleRequest, UpdateProjectMemberResponsibilityRequest,
-    UpdateWorkDependencyStateRequest, UpdateWorkItemLifecycleRequest, WorkCommandEnvelope,
-    WorkItemCommandResult,
+    CommitIterationScopeRequest, CreateChildWorkItemRequest, CreateProjectRequest,
+    CreateWorkItemRequest, DependencyCommandResult, IdempotencyResultView, IterationCommandResult,
+    LinkWorkDependencyRequest, OpenIterationRequest, OpenWorkBlockerRequest, ProjectCommandResult,
+    ProjectMemberCommandResult, ProjectResponsibilitySpec, ProjectSpec, PromoteCommandResult,
+    RequestWorkPromotionRequest, ResolveWorkBlockerRequest, ReviewWorkPromotionRequest,
+    UpdateBacklogAvailabilityRequest, UpdateIterationCommitmentRequest,
+    UpdateIterationLifecycleRequest, UpdateProjectLifecycleRequest,
+    UpdateProjectMemberResponsibilityRequest, UpdateWorkDependencyStateRequest,
+    UpdateWorkItemLifecycleRequest, WorkCommandEnvelope, WorkItemCommandResult,
 };
 pub use errors::WorkProtocolError;
 pub use handoff::{ApplicationResultRef, WorkCommandReceipt, WorkTraceContextRef};
@@ -25,14 +26,17 @@ pub use refs::{
     ArchiveHandoffRef, BacklogId, BacklogMaintenanceReason, BacklogMaintenanceReasonKind,
     BacklogRef, BlockerCauseRef, BlockerCloseReason, BlockerCloseReasonKind,
     BlockerImpactExplanation, BlockerMitigationReason, BlockerMitigationReasonKind, CapabilityRef,
-    CapabilityRefSet, ChildWorkItemId, DependencyChangeId, DependencyChangeReason,
-    DependencyChangeReasonKind, DependencyOrBlockerRef, DependencyReason, DependencyReasonKind,
-    DependencyTarget, DerivedWorkViewKind, DerivedWorkViewRef, DerivedWorkViewScopeRef,
-    EvidenceKind, EvidenceVerifiedState, ExternalEvidenceRef, ExternalSourceRef,
-    ExternalSourceSummary, ExternalSourceSystem, FormalWorkCandidateSummary, FormalWorkIntent,
-    FormalWorkRef, GlobalMemberRef, IterationId, IterationRef, MethodDefinitionKind,
-    MethodDefinitionRef, OutboxFailureReason, OutboxFailureReasonKind, OutboxPublicationRef,
-    OutboxRetryReason, ProjectId, ProjectLifecycleReason, ProjectLifecycleReasonKind,
+    CapabilityRefSet, ChildWorkItemId, CommitmentChangeReason, CommitmentChangeReasonKind,
+    DependencyChangeId, DependencyChangeReason, DependencyChangeReasonKind, DependencyOrBlockerRef,
+    DependencyReason, DependencyReasonKind, DependencyTarget, DerivedWorkViewKind,
+    DerivedWorkViewRef, DerivedWorkViewScopeRef, EvidenceKind, EvidenceVerifiedState,
+    ExternalEvidenceRef, ExternalSourceRef, ExternalSourceSummary, ExternalSourceSystem,
+    FormalWorkCandidateSummary, FormalWorkIntent, FormalWorkRef, FormalWorkRefSet, GlobalMemberRef,
+    IterationChangeId, IterationChangeReason, IterationChangeReasonKind, IterationCloseReason,
+    IterationCloseReasonKind, IterationCommitmentChangeSet, IterationCommitmentId, IterationId,
+    IterationLifecycleTarget, IterationRef, MethodDefinitionKind, MethodDefinitionRef,
+    OutboxFailureReason, OutboxFailureReasonKind, OutboxPublicationRef, OutboxRetryReason,
+    ProcessTimeboxRef, ProjectId, ProjectLifecycleReason, ProjectLifecycleReasonKind,
     ProjectLifecycleTarget, ProjectMemberId, ProjectMemberReason, ProjectMemberReasonKind,
     ProjectMemberRef, ProjectOwnerKind, ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind,
     PromoteDecision, PromoteDecisionId, PromoteReason, PromoteReasonKind, PromoteRejectReason,
@@ -46,8 +50,9 @@ pub use refs::{
     WorkTruthSnapshot,
 };
 pub use states::{
-    BacklogAvailabilityTarget, BacklogState, BlockerState, DependencyState, OutboxPublicationState,
-    ProjectLifecycleState, ProjectMemberResponsibilityState, PromoteResultState, WorkItemState,
+    BacklogAvailabilityTarget, BacklogState, BlockerState, CommitmentState, DependencyState,
+    IterationState, OutboxPublicationState, ProjectLifecycleState,
+    ProjectMemberResponsibilityState, PromoteResultState, WorkItemState,
 };
 
 #[cfg(test)]
@@ -57,11 +62,13 @@ mod tests {
 
     use super::commands::{
         AssignProjectMemberRequest, BacklogCommandResult, BlockerCommandResult,
-        CreateChildWorkItemRequest, CreateProjectRequest, CreateWorkItemRequest,
-        DependencyCommandResult, IdempotencyResultView, LinkWorkDependencyRequest,
+        CommitIterationScopeRequest, CreateChildWorkItemRequest, CreateProjectRequest,
+        CreateWorkItemRequest, DependencyCommandResult, IdempotencyResultView,
+        IterationCommandResult, LinkWorkDependencyRequest, OpenIterationRequest,
         OpenWorkBlockerRequest, ProjectCommandResult, ProjectMemberCommandResult,
         PromoteCommandResult, RequestWorkPromotionRequest, ResolveWorkBlockerRequest,
         ReviewWorkPromotionRequest, UpdateBacklogAvailabilityRequest,
+        UpdateIterationCommitmentRequest, UpdateIterationLifecycleRequest,
         UpdateProjectLifecycleRequest, UpdateProjectMemberResponsibilityRequest,
         UpdateWorkDependencyStateRequest, UpdateWorkItemLifecycleRequest, WorkCommandEnvelope,
         WorkItemCommandResult,
@@ -70,14 +77,15 @@ mod tests {
     use super::metadata::fixtures;
     use super::refs::{
         BacklogMaintenanceReason, BacklogMaintenanceReasonKind, DependencyOrBlockerRef,
-        DependencyTarget, ProjectLifecycleReason, ProjectLifecycleReasonKind,
-        ProjectLifecycleTarget, ProjectMemberReason, ProjectMemberReasonKind,
-        PromoteReviewDecision, ResponsibilityTarget, TraceHandoffIntent, TraceHandoffTargetKind,
-        TraceHandoffTargetRef, WorkLifecycleTarget, WorkTruthChange,
+        DependencyTarget, IterationLifecycleTarget, ProjectLifecycleReason,
+        ProjectLifecycleReasonKind, ProjectLifecycleTarget, ProjectMemberReason,
+        ProjectMemberReasonKind, PromoteReviewDecision, ResponsibilityTarget, TraceHandoffIntent,
+        TraceHandoffTargetKind, TraceHandoffTargetRef, WorkLifecycleTarget, WorkTruthChange,
     };
     use super::states::{
-        BacklogAvailabilityTarget, BacklogState, BlockerState, DependencyState,
-        ProjectLifecycleState, ProjectMemberResponsibilityState, PromoteResultState, WorkItemState,
+        BacklogAvailabilityTarget, BacklogState, BlockerState, CommitmentState, DependencyState,
+        IterationState, ProjectLifecycleState, ProjectMemberResponsibilityState,
+        PromoteResultState, WorkItemState,
     };
 
     fn roundtrip<T>(value: &T)
@@ -176,6 +184,35 @@ mod tests {
             evidence_ref: fixtures::blocker_resolution_evidence_ref(),
             expected_version: 6,
         });
+        roundtrip(&OpenIterationRequest {
+            project_ref: fixtures::project_ref(),
+            timebox_ref: fixtures::process_timebox_ref(),
+        });
+        roundtrip(&CommitIterationScopeRequest {
+            iteration_ref: fixtures::iteration_ref(),
+            candidate_work_refs: fixtures::formal_work_ref_set(),
+            expected_iteration_version: 2,
+        });
+        roundtrip(&UpdateIterationCommitmentRequest {
+            iteration_ref: fixtures::iteration_ref(),
+            change_set: fixtures::iteration_commitment_change_set(),
+            reason: fixtures::iteration_commitment_changed_reason(),
+            expected_commitment_version: 3,
+        });
+        roundtrip(&UpdateIterationLifecycleRequest {
+            iteration_ref: fixtures::iteration_ref(),
+            target: IterationLifecycleTarget::InProgress,
+            change_reason: Some(fixtures::iteration_started_reason()),
+            close_reason: None,
+            expected_version: 4,
+        });
+        roundtrip(&UpdateIterationLifecycleRequest {
+            iteration_ref: fixtures::iteration_ref(),
+            target: IterationLifecycleTarget::Closed,
+            change_reason: None,
+            close_reason: Some(fixtures::iteration_closed_reason()),
+            expected_version: 5,
+        });
     }
 
     #[test]
@@ -263,6 +300,18 @@ mod tests {
                 applied_version: Some(1),
             },
         });
+        roundtrip(&IterationCommandResult {
+            iteration_ref: fixtures::iteration_ref(),
+            iteration_state: IterationState::Committed,
+            commitment_state: Some(CommitmentState::Committed),
+            receipt: WorkCommandReceipt {
+                result_ref: fixtures::application_result_ref("commit_iteration_scope", "result-7"),
+                idempotency: IdempotencyResultView::Applied,
+                trace_ref: Some(fixtures::trace_id()),
+                outbox_record_refs: vec![fixtures::outbox_id()],
+                applied_version: Some(2),
+            },
+        });
     }
 
     #[test]
@@ -295,6 +344,7 @@ mod tests {
         roundtrip(&WorkTruthChange::WorkRelationChanged(
             DependencyOrBlockerRef::Blocker(fixtures::work_blocker_ref()),
         ));
+        roundtrip(&WorkTruthChange::IterationChanged(fixtures::iteration_ref()));
         roundtrip(&WorkTraceContextRef::from_metadata(
             &fixtures::request_metadata(None),
         ));

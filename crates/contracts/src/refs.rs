@@ -32,6 +32,11 @@ string_newtype!(
     "Identifies a dependency or blocker change record."
 );
 string_newtype!(IterationId, "Identifies a Work-owned iteration.");
+string_newtype!(
+    IterationCommitmentId,
+    "Identifies a Work-owned iteration commitment set."
+);
+string_newtype!(IterationChangeId, "Identifies an iteration change record.");
 string_newtype!(PromoteResultId, "Identifies a promote result.");
 string_newtype!(PromoteDecisionId, "Identifies a promote decision record.");
 string_newtype!(
@@ -69,6 +74,10 @@ string_newtype!(
     OutboxPublicationRef,
     "Publication reference returned by the outbox publisher."
 );
+string_newtype!(
+    ProcessTimeboxRef,
+    "References one external process timebox."
+);
 
 /// Derived view category.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -78,6 +87,10 @@ pub enum DerivedWorkViewKind {
     ProjectBoard,
     /// Project-member work projection.
     MemberWork,
+    /// Iteration summary projection.
+    IterationSummary,
+    /// Work search projection.
+    WorkSearch,
 }
 
 /// References a Work-owned project subject across APIs and events.
@@ -138,6 +151,13 @@ pub struct IterationRef {
     pub iteration_id: IterationId,
 }
 
+/// Stable set of formal work refs.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct FormalWorkRefSet {
+    /// Stable formal work refs in deterministic order.
+    pub refs: Vec<FormalWorkRef>,
+}
+
 /// Scope used to derive a stable projection key.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum DerivedWorkViewScopeRef {
@@ -145,6 +165,8 @@ pub enum DerivedWorkViewScopeRef {
     Project(ProjectRef),
     /// Project-member-scoped view.
     ProjectMember(ProjectMemberRef),
+    /// Iteration-scoped view.
+    Iteration(IterationRef),
 }
 
 /// Stable reference to one derived Work view freshness marker.
@@ -170,6 +192,14 @@ impl DerivedWorkViewRef {
         Self {
             view_kind: DerivedWorkViewKind::MemberWork,
             scope_ref: DerivedWorkViewScopeRef::ProjectMember(project_member_ref),
+        }
+    }
+
+    /// Builds the iteration summary derived view ref for one iteration.
+    pub fn iteration_summary(iteration_ref: IterationRef) -> Self {
+        Self {
+            view_kind: DerivedWorkViewKind::IterationSummary,
+            scope_ref: DerivedWorkViewScopeRef::Iteration(iteration_ref),
         }
     }
 }
@@ -739,6 +769,8 @@ pub enum WorkTraceSubjectRef {
     PromoteResult(PromoteResultRef),
     /// Dependency or blocker subject.
     Relation(DependencyOrBlockerRef),
+    /// Iteration subject.
+    Iteration(IterationRef),
     /// Trace or archive handoff subject.
     Handoff(TraceHandoffRef),
 }
@@ -758,6 +790,8 @@ pub enum WorkAuditSubjectRef {
     PromoteResult(PromoteResultRef),
     /// Dependency or blocker audit subject.
     Relation(DependencyOrBlockerRef),
+    /// Iteration audit subject.
+    Iteration(IterationRef),
 }
 
 /// Set of trace records linked from an audit trail.
@@ -784,6 +818,8 @@ pub enum WorkTruthChange {
     PromoteResultRecorded(PromoteResultRef),
     /// A dependency or blocker changed.
     WorkRelationChanged(DependencyOrBlockerRef),
+    /// An iteration or commitment changed.
+    IterationChanged(IterationRef),
 }
 
 impl WorkTruthChange {
@@ -805,6 +841,9 @@ impl WorkTruthChange {
             }
             Self::WorkRelationChanged(relation_ref) => {
                 WorkTraceSubjectRef::Relation(relation_ref.clone())
+            }
+            Self::IterationChanged(iteration_ref) => {
+                WorkTraceSubjectRef::Iteration(iteration_ref.clone())
             }
         }
     }
@@ -828,6 +867,9 @@ impl WorkTruthChange {
             Self::WorkRelationChanged(relation_ref) => {
                 WorkAuditSubjectRef::Relation(relation_ref.clone())
             }
+            Self::IterationChanged(iteration_ref) => {
+                WorkAuditSubjectRef::Iteration(iteration_ref.clone())
+            }
         }
     }
 
@@ -847,6 +889,7 @@ impl WorkTruthChange {
             Self::WorkRelationChanged(DependencyOrBlockerRef::Blocker(_)) => {
                 WorkOutboxEventKind::WorkBlockerChanged
             }
+            Self::IterationChanged(_) => WorkOutboxEventKind::IterationChanged,
         }
     }
 }
@@ -862,6 +905,15 @@ pub struct FormalWorkIntent {
     pub assignee_ref: ProjectMemberRef,
     /// Optional parent formal work for split candidates.
     pub parent_ref: Option<FormalWorkRef>,
+}
+
+/// Describes changes to an iteration commitment.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct IterationCommitmentChangeSet {
+    /// Formal work refs to add to the commitment.
+    pub add_work_refs: Vec<FormalWorkRef>,
+    /// Formal work refs to remove from the commitment.
+    pub remove_work_refs: Vec<FormalWorkRef>,
 }
 
 /// Scope used by Work truth policy checks.
@@ -910,6 +962,89 @@ pub enum PromoteDecision {
     Reject(PromoteRejectReason),
     /// Promotion duplicates an existing formal work record.
     Duplicate(FormalWorkRef),
+}
+
+/// Target lifecycle state requested for an iteration.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IterationLifecycleTarget {
+    /// Start a committed iteration.
+    InProgress,
+    /// Close the iteration.
+    Closed,
+    /// Cancel the iteration.
+    Cancelled,
+}
+
+/// Reason supplied when an iteration or commitment changes.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct IterationChangeReason {
+    /// Reason category.
+    pub reason_kind: IterationChangeReasonKind,
+    /// Optional external evidence or decision reference.
+    pub reason_ref: Option<ExternalEvidenceRef>,
+}
+
+/// Reason supplied when an iteration closes.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct IterationCloseReason {
+    /// Reason category.
+    pub reason_kind: IterationCloseReasonKind,
+    /// Optional external evidence or decision reference.
+    pub reason_ref: Option<ExternalEvidenceRef>,
+}
+
+/// Reason supplied when committed work is removed or adjusted.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CommitmentChangeReason {
+    /// Reason category.
+    pub reason_kind: CommitmentChangeReasonKind,
+    /// Optional external evidence or decision reference.
+    pub reason_ref: Option<ExternalEvidenceRef>,
+}
+
+/// Iteration change category.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IterationChangeReasonKind {
+    /// Initial commitment was created.
+    CommitmentCreated,
+    /// Existing commitment changed.
+    CommitmentChanged,
+    /// Iteration started.
+    Started,
+    /// Iteration was cancelled.
+    Cancelled,
+    /// Process timing or signal caused the change.
+    ProcessSignal,
+}
+
+/// Iteration close category.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IterationCloseReasonKind {
+    /// Iteration completed successfully.
+    Completed,
+    /// Iteration closed because it was cancelled.
+    Cancelled,
+    /// Iteration closed because the timebox ended.
+    TimeboxEnded,
+    /// Iteration was closed manually.
+    ManualClose,
+}
+
+/// Commitment change category.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommitmentChangeReasonKind {
+    /// Commitment scope was reduced.
+    ScopeReduced,
+    /// Commitment scope was expanded.
+    ScopeExpanded,
+    /// Commitment changed because a dependency changed.
+    DependencyChanged,
+    /// Commitment changed manually.
+    ManualAdjustment,
 }
 
 /// Trace handoff target category.

@@ -104,6 +104,36 @@ pub enum BlockerState {
     Closed,
 }
 
+/// Lifecycle state for a Work-owned iteration.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IterationState {
+    /// The iteration is being planned.
+    Planning,
+    /// The iteration has a committed work scope.
+    Committed,
+    /// The iteration is in progress.
+    InProgress,
+    /// The iteration was closed.
+    Closed,
+    /// The iteration was cancelled.
+    Cancelled,
+}
+
+/// Lifecycle state for an iteration commitment set.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommitmentState {
+    /// The commitment set is a candidate.
+    Candidate,
+    /// The commitment set is active.
+    Committed,
+    /// The commitment set changed after initial commit.
+    Changed,
+    /// The commitment set is closed.
+    Closed,
+}
+
 /// Target availability state requested for a backlog.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

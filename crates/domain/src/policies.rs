@@ -2,13 +2,13 @@
 
 use core_contracts::actor::ActorRef;
 
-use crate::{Backlog, DomainError, Project};
+use crate::{Backlog, DomainError, Iteration, Project};
 use work_contracts::{
     BacklogAvailabilityTarget, BacklogMaintenanceReason, EvidenceVerifiedState,
-    ExternalEvidenceRef, ExternalSourceSummary, FormalWorkIntent, FormalWorkRef, GlobalMemberRef,
-    ProjectLifecycleReason, ProjectLifecycleTarget, ProjectResponsibilitySpec, PromoteDecision,
-    PromoteReason, PromoteRejectReason, PromoteRejectReasonKind, SourceWorkKind, SourceWorkRef,
-    WorkLifecycleReason, WorkLifecycleReasonKind, WorkPolicyScope, WorkTruthChange,
+    ExternalEvidenceRef, ExternalSourceSummary, FormalWorkIntent, FormalWorkRef, FormalWorkRefSet,
+    GlobalMemberRef, ProjectLifecycleReason, ProjectLifecycleTarget, ProjectResponsibilitySpec,
+    PromoteDecision, PromoteReason, PromoteRejectReason, PromoteRejectReasonKind, SourceWorkKind,
+    SourceWorkRef, WorkLifecycleReason, WorkLifecycleReasonKind, WorkPolicyScope, WorkTruthChange,
     WorkTruthSnapshot,
 };
 
@@ -61,7 +61,7 @@ impl WorkTruthPolicy {
                     return Err(DomainError::RefMismatch);
                 }
             }
-            WorkTruthChange::WorkRelationChanged(_) => {}
+            WorkTruthChange::WorkRelationChanged(_) | WorkTruthChange::IterationChanged(_) => {}
         }
 
         Ok(())
@@ -210,6 +210,25 @@ impl PromotePolicy {
             | SourceWorkKind::Artifact
             | SourceWorkKind::Governance => PromoteDecision::Allow,
         }
+    }
+}
+
+/// Guards formal work commitment into one iteration.
+pub struct IterationCommitmentPolicy;
+
+impl IterationCommitmentPolicy {
+    /// Validates whether the given candidates may be committed into the iteration.
+    pub fn assert_commitment_allowed(
+        iteration: &Iteration,
+        candidates: FormalWorkRefSet,
+    ) -> Result<(), DomainError> {
+        if iteration.iteration_state != work_contracts::IterationState::Planning {
+            return Err(DomainError::InvalidStateTransition);
+        }
+        if candidates.refs.is_empty() {
+            return Err(DomainError::PolicyRejected);
+        }
+        Ok(())
     }
 }
 

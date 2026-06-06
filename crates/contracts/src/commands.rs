@@ -8,15 +8,17 @@ use crate::handoff::WorkCommandReceipt;
 use crate::refs::{
     BacklogMaintenanceReason, BacklogRef, BlockerCauseRef, CapabilityRefSet,
     DependencyChangeReason, DependencyReason, DependencyTarget, ExternalEvidenceRef,
-    FormalWorkIntent, FormalWorkRef, GlobalMemberRef, ProjectLifecycleReason,
-    ProjectLifecycleTarget, ProjectMemberReason, ProjectMemberRef, ProjectOwnerRef, ProjectRef,
-    ProjectResponsibilityKind, PromoteReason, PromoteResultRef, PromoteReviewDecision,
-    ResponsibilityTarget, SourceWorkRef, WorkBlockerRef, WorkDependencyRef, WorkLifecycleReason,
-    WorkLifecycleTarget,
+    FormalWorkIntent, FormalWorkRef, FormalWorkRefSet, GlobalMemberRef, IterationChangeReason,
+    IterationCloseReason, IterationCommitmentChangeSet, IterationLifecycleTarget, IterationRef,
+    ProcessTimeboxRef, ProjectLifecycleReason, ProjectLifecycleTarget, ProjectMemberReason,
+    ProjectMemberRef, ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind, PromoteReason,
+    PromoteResultRef, PromoteReviewDecision, ResponsibilityTarget, SourceWorkRef, WorkBlockerRef,
+    WorkDependencyRef, WorkLifecycleReason, WorkLifecycleTarget,
 };
 use crate::states::{
-    BacklogAvailabilityTarget, BacklogState, BlockerState, DependencyState, ProjectLifecycleState,
-    ProjectMemberResponsibilityState, PromoteResultState, WorkItemState,
+    BacklogAvailabilityTarget, BacklogState, BlockerState, CommitmentState, DependencyState,
+    IterationState, ProjectLifecycleState, ProjectMemberResponsibilityState, PromoteResultState,
+    WorkItemState,
 };
 
 /// A synchronous Work command envelope.
@@ -210,6 +212,54 @@ pub struct ResolveWorkBlockerRequest {
     pub expected_version: core_contracts::metadata::Version,
 }
 
+/// Requests opening a Work-owned iteration.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct OpenIterationRequest {
+    /// Project that owns the iteration.
+    pub project_ref: ProjectRef,
+    /// External process timebox pointer.
+    pub timebox_ref: ProcessTimeboxRef,
+}
+
+/// Requests commitment of an iteration work scope.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CommitIterationScopeRequest {
+    /// Iteration to commit.
+    pub iteration_ref: IterationRef,
+    /// Candidate formal work refs.
+    pub candidate_work_refs: FormalWorkRefSet,
+    /// Expected iteration version.
+    pub expected_iteration_version: core_contracts::metadata::Version,
+}
+
+/// Requests changes to an iteration commitment.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct UpdateIterationCommitmentRequest {
+    /// Iteration whose commitment is changed.
+    pub iteration_ref: IterationRef,
+    /// Change set to apply.
+    pub change_set: IterationCommitmentChangeSet,
+    /// Reason for the change.
+    pub reason: IterationChangeReason,
+    /// Expected commitment version.
+    pub expected_commitment_version: core_contracts::metadata::Version,
+}
+
+/// Requests an iteration lifecycle transition.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct UpdateIterationLifecycleRequest {
+    /// Iteration to update.
+    pub iteration_ref: IterationRef,
+    /// Target iteration state.
+    pub target: IterationLifecycleTarget,
+    /// Required for `target = InProgress` and `target = Cancelled`; forbidden for `target = Closed`.
+    pub change_reason: Option<IterationChangeReason>,
+    /// Required for `target = Closed`; forbidden for `target = InProgress` and `target = Cancelled`.
+    pub close_reason: Option<IterationCloseReason>,
+    /// Expected iteration version.
+    pub expected_version: core_contracts::metadata::Version,
+}
+
 /// Idempotency result visible to command and job callers.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -354,6 +404,28 @@ pub struct BlockerCommandResult {
 }
 
 impl BlockerCommandResult {
+    /// Returns a duplicate replay view while preserving the stored result surface.
+    pub fn with_duplicate_receipt(&self) -> Self {
+        let mut result = self.clone();
+        result.receipt = result.receipt.with_duplicate_overlay();
+        result
+    }
+}
+
+/// Result returned by iteration commands.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct IterationCommandResult {
+    /// Changed iteration reference.
+    pub iteration_ref: IterationRef,
+    /// Current iteration state.
+    pub iteration_state: IterationState,
+    /// Current commitment state when a commitment is involved.
+    pub commitment_state: Option<CommitmentState>,
+    /// Shared write receipt.
+    pub receipt: WorkCommandReceipt,
+}
+
+impl IterationCommandResult {
     /// Returns a duplicate replay view while preserving the stored result surface.
     pub fn with_duplicate_receipt(&self) -> Self {
         let mut result = self.clone();

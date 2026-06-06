@@ -13,10 +13,13 @@ use crate::{
     handoff::{ApplicationResultRef, WorkTraceContextRef},
     refs::{
         BacklogId, BacklogRef, BlockerCauseRef, CapabilityRef, CapabilityRefSet, ChildWorkItemId,
-        DependencyChangeReason, DependencyChangeReasonKind, DependencyOrBlockerRef,
-        DependencyReason, DependencyReasonKind, EvidenceKind, EvidenceVerifiedState,
-        ExternalEvidenceRef, ExternalSourceRef, ExternalSourceSystem, FormalWorkIntent,
-        FormalWorkRef, GlobalMemberRef, IterationId, IterationRef, MethodDefinitionRef, ProjectId,
+        CommitmentChangeReason, CommitmentChangeReasonKind, DependencyChangeReason,
+        DependencyChangeReasonKind, DependencyOrBlockerRef, DependencyReason, DependencyReasonKind,
+        EvidenceKind, EvidenceVerifiedState, ExternalEvidenceRef, ExternalSourceRef,
+        ExternalSourceSystem, FormalWorkIntent, FormalWorkRef, FormalWorkRefSet, GlobalMemberRef,
+        IterationChangeReason, IterationChangeReasonKind, IterationCloseReason,
+        IterationCloseReasonKind, IterationCommitmentChangeSet, IterationCommitmentId,
+        IterationId, IterationRef, MethodDefinitionRef, ProcessTimeboxRef, ProjectId,
         ProjectMemberId, ProjectMemberRef, ProjectOwnerKind, ProjectOwnerRef, ProjectRef,
         ProjectResponsibilityKind, PromoteReason, PromoteReasonKind, PromoteRejectReason,
         PromoteRejectReasonKind, PromoteResultId, PromoteResultRef, ResultId, SafeSummaryText,
@@ -196,6 +199,23 @@ pub mod fixtures {
     pub fn iteration_ref() -> IterationRef {
         IterationRef {
             iteration_id: IterationId("iteration-1".to_owned()),
+        }
+    }
+
+    /// Returns a deterministic iteration commitment id.
+    pub fn iteration_commitment_id() -> IterationCommitmentId {
+        IterationCommitmentId("iteration-commitment-1".to_owned())
+    }
+
+    /// Returns a deterministic process timebox ref.
+    pub fn process_timebox_ref() -> ProcessTimeboxRef {
+        ProcessTimeboxRef("process/timeboxes/timebox-1".to_owned())
+    }
+
+    /// Returns a deterministic formal work ref set.
+    pub fn formal_work_ref_set() -> FormalWorkRefSet {
+        FormalWorkRefSet {
+            refs: vec![formal_work_ref(), child_formal_work_ref()],
         }
     }
 
@@ -436,6 +456,62 @@ pub mod fixtures {
         }
     }
 
+    /// Returns a deterministic iteration change reason for commitment creation.
+    pub fn iteration_commitment_created_reason() -> IterationChangeReason {
+        IterationChangeReason {
+            reason_kind: IterationChangeReasonKind::CommitmentCreated,
+            reason_ref: None,
+        }
+    }
+
+    /// Returns a deterministic iteration change reason for commitment updates.
+    pub fn iteration_commitment_changed_reason() -> IterationChangeReason {
+        IterationChangeReason {
+            reason_kind: IterationChangeReasonKind::CommitmentChanged,
+            reason_ref: None,
+        }
+    }
+
+    /// Returns a deterministic iteration start reason.
+    pub fn iteration_started_reason() -> IterationChangeReason {
+        IterationChangeReason {
+            reason_kind: IterationChangeReasonKind::Started,
+            reason_ref: None,
+        }
+    }
+
+    /// Returns a deterministic iteration cancellation reason.
+    pub fn iteration_cancelled_reason() -> IterationChangeReason {
+        IterationChangeReason {
+            reason_kind: IterationChangeReasonKind::Cancelled,
+            reason_ref: None,
+        }
+    }
+
+    /// Returns a deterministic iteration close reason.
+    pub fn iteration_closed_reason() -> IterationCloseReason {
+        IterationCloseReason {
+            reason_kind: IterationCloseReasonKind::ManualClose,
+            reason_ref: None,
+        }
+    }
+
+    /// Returns a deterministic commitment change reason.
+    pub fn commitment_change_reason() -> CommitmentChangeReason {
+        CommitmentChangeReason {
+            reason_kind: CommitmentChangeReasonKind::ManualAdjustment,
+            reason_ref: None,
+        }
+    }
+
+    /// Returns a deterministic iteration commitment change set.
+    pub fn iteration_commitment_change_set() -> IterationCommitmentChangeSet {
+        IterationCommitmentChangeSet {
+            add_work_refs: vec![downstream_formal_work_ref()],
+            remove_work_refs: vec![formal_work_ref()],
+        }
+    }
+
     /// Returns a deterministic source event id.
     pub fn source_event_id() -> SourceEventId {
         SourceEventId("source-event-1".to_owned())
@@ -493,6 +569,11 @@ pub mod fixtures {
     /// Returns a deterministic blocker change.
     pub fn blocker_changed_change() -> WorkTruthChange {
         WorkTruthChange::WorkRelationChanged(DependencyOrBlockerRef::Blocker(work_blocker_ref()))
+    }
+
+    /// Returns a deterministic iteration change.
+    pub fn iteration_changed_change() -> WorkTruthChange {
+        WorkTruthChange::IterationChanged(iteration_ref())
     }
 
     /// Returns a deterministic trace context ref.

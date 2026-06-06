@@ -107,6 +107,9 @@ impl WorkAuditTrail {
             WorkAuditSubjectRef::Relation(relation_ref) => {
                 WorkAuditTrailId(format!("audit:relation:{relation_ref:?}"))
             }
+            WorkAuditSubjectRef::Iteration(iteration_ref) => {
+                WorkAuditTrailId(format!("audit:iteration:{iteration_ref:?}"))
+            }
         };
 
         Self {
@@ -133,6 +136,9 @@ impl WorkAuditTrail {
                 lhs == rhs
             }
             (WorkAuditSubjectRef::Relation(lhs), WorkTraceSubjectRef::Relation(rhs)) => lhs == rhs,
+            (WorkAuditSubjectRef::Iteration(lhs), WorkTraceSubjectRef::Iteration(rhs)) => {
+                lhs == rhs
+            }
             _ => false,
         };
 
