@@ -9,8 +9,10 @@ use work_application::{
     PortError, SourceWorkResolution, SourceWorkResolverPort,
 };
 use work_contracts::{
-    CapabilityRefSet, ExternalEvidenceRef, ExternalSourceSummary, GlobalMemberRef, SourceWorkRef,
+    CapabilityRefSet, EvidenceVerifiedState, ExternalEvidenceRef, ExternalSourceRef,
+    ExternalSourceSummary, ExternalSourceSystem, GlobalMemberRef, SourceWorkRef,
 };
+use work_domain::ReferenceResolutionState;
 
 /// Deterministic fake member resolver keyed by `GlobalMemberRef`.
 #[derive(Clone, Default)]
@@ -144,8 +146,8 @@ pub struct FakeEvidenceResolverPort {
 /// Configured fake outcome for one evidence resolver call.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EvidenceResolverOutcome {
-    /// Resolver returns the evidence ref.
-    Success,
+    /// Resolver returns the evidence ref with the supplied verified state.
+    Success(EvidenceVerifiedState),
     /// External reference does not exist.
     Unresolved,
     /// External dependency is temporarily unavailable.
@@ -180,7 +182,18 @@ impl EvidenceResolverPort for FakeEvidenceResolverPort {
             .cloned()
             .unwrap_or(EvidenceResolverOutcome::Unresolved)
         {
-            EvidenceResolverOutcome::Success => Ok(EvidenceResolution { evidence_ref }),
+            EvidenceResolverOutcome::Success(verified_state) => Ok(EvidenceResolution {
+                evidence_ref,
+                verified_state,
+                reference_state: ReferenceResolutionState {
+                    reference_ref: ExternalSourceRef {
+                        source_system: ExternalSourceSystem::Artifact,
+                        external_id: "evidence-resolution".to_owned(),
+                    },
+                    resolved: verified_state == EvidenceVerifiedState::Verified,
+                    last_resolved_at: None,
+                },
+            }),
             EvidenceResolverOutcome::Unresolved => Err(PortError::NotFound),
             EvidenceResolverOutcome::Unavailable => Err(PortError::Unavailable),
             EvidenceResolverOutcome::Rejected => Err(PortError::Rejected),

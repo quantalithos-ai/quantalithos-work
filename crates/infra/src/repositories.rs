@@ -6,19 +6,20 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use core_contracts::metadata::{PageRequest, Version};
 use work_application::{
-    AuditRepository, BacklogRepository, FormalWorkRecord, Page, PageInfo, ProjectMemberRepository,
-    ProjectRepository, ProjectionRepository, PromoteRepository, ReferenceSnapshotRepository,
-    RepositoryError, UnitOfWork, UnitOfWorkError, UnitOfWorkHandle, UnitOfWorkId,
-    WorkItemRepository,
+    AuditRepository, BacklogRepository, DependencyRepository, FormalWorkRecord, FormalWorkScope,
+    Page, PageInfo, ProjectMemberRepository, ProjectRepository, ProjectionRepository,
+    PromoteRepository, ReferenceSnapshotRepository, RepositoryError, UnitOfWork, UnitOfWorkError,
+    UnitOfWorkHandle, UnitOfWorkId, WorkItemRepository,
 };
 use work_contracts::{
-    BacklogRef, DerivedWorkViewRef, FormalWorkRef, GlobalMemberRef, ProjectMemberRef,
-    ProjectOwnerRef, ProjectRef, PromoteResultRef, SourceWorkRef, WorkAuditSubjectRef,
-    WorkTruthCursor,
+    BacklogRef, DependencyOrBlockerRef, DerivedWorkViewRef, FormalWorkRef, GlobalMemberRef,
+    ProjectMemberRef, ProjectOwnerRef, ProjectRef, PromoteResultRef, SourceWorkRef,
+    WorkAuditSubjectRef, WorkBlockerRef, WorkDependencyRef, WorkTruthCursor,
 };
 use work_domain::{
-    Backlog, ChildWorkItem, MemberCapabilitySnapshot, PendingPromoteIntake, ProjectMember,
-    PromoteDecisionRecord, PromoteResult, TraceHandoffMarker, WorkAuditTrail, WorkItem,
+    Backlog, ChildWorkItem, DependencyChangeRecord, DependencyGraphSnapshot,
+    MemberCapabilitySnapshot, PendingPromoteIntake, ProjectMember, PromoteDecisionRecord,
+    PromoteResult, TraceHandoffMarker, WorkAuditTrail, WorkBlocker, WorkDependency, WorkItem,
     WorkTraceRecord,
 };
 
@@ -39,6 +40,9 @@ struct Stores {
     project_member_by_project_and_member: HashMap<(String, String), String>,
     work_items: HashMap<String, (WorkItem, Version)>,
     child_work_items: HashMap<String, (ChildWorkItem, Version)>,
+    dependencies: HashMap<String, (WorkDependency, Version)>,
+    blockers: HashMap<String, (WorkBlocker, Version)>,
+    dependency_changes: Vec<DependencyChangeRecord>,
     promote_results: HashMap<String, (PromoteResult, Version)>,
     promote_latest_by_source: HashMap<String, String>,
     promote_decisions: Vec<PromoteDecisionRecord>,
@@ -453,6 +457,53 @@ impl WorkItemRepository for InMemoryWorkStores {
         })
     }
 
+    async fn get_formal_work_scope(
+        &self,
+        work_ref: FormalWorkRef,
+    ) -> Result<Option<FormalWorkScope>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        match work_ref.clone() {
+            FormalWorkRef::WorkItem(work_item_id) => {
+                let Some((work_item, _)) = state.work_items.get(&work_item_id.0) else {
+                    return Ok(None);
+                };
+                let Some((backlog, _)) = state.backlogs.get(&work_item.backlog_id.0) else {
+                    return Ok(None);
+                };
+                Ok(Some(FormalWorkScope {
+                    work_ref,
+                    project_ref: ProjectRef {
+                        project_id: backlog.project_id.clone(),
+                    },
+                    backlog_ref: backlog.backlog_ref(),
+                    assignee_ref: Some(work_item.assignee_ref.clone()),
+                }))
+            }
+            FormalWorkRef::ChildWorkItem(child_work_item_id) => {
+                let Some((child, _)) = state.child_work_items.get(&child_work_item_id.0) else {
+                    return Ok(None);
+                };
+                let Some((parent, _)) = state.work_items.get(&child.parent_work_item_id.0) else {
+                    return Ok(None);
+                };
+                let Some((backlog, _)) = state.backlogs.get(&parent.backlog_id.0) else {
+                    return Ok(None);
+                };
+                Ok(Some(FormalWorkScope {
+                    work_ref,
+                    project_ref: ProjectRef {
+                        project_id: backlog.project_id.clone(),
+                    },
+                    backlog_ref: backlog.backlog_ref(),
+                    assignee_ref: Some(parent.assignee_ref.clone()),
+                }))
+            }
+        }
+    }
+
     async fn create_work_item(
         &self,
         work_item: WorkItem,
@@ -529,6 +580,210 @@ impl WorkItemRepository for InMemoryWorkStores {
                 Ok(entry.1)
             }
         }
+    }
+}
+
+#[async_trait]
+impl DependencyRepository for InMemoryWorkStores {
+    async fn get_dependency(
+        &self,
+        dependency_ref: WorkDependencyRef,
+    ) -> Result<Option<WorkDependency>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(state
+            .dependencies
+            .get(&dependency_ref.dependency_id.0)
+            .map(|(dependency, _)| dependency.clone()))
+    }
+
+    async fn get_blocker(
+        &self,
+        blocker_ref: WorkBlockerRef,
+    ) -> Result<Option<WorkBlocker>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(state
+            .blockers
+            .get(&blocker_ref.blocker_id.0)
+            .map(|(blocker, _)| blocker.clone()))
+    }
+
+    async fn list_active_for_work(
+        &self,
+        work_ref: FormalWorkRef,
+        _page: PageRequest,
+    ) -> Result<Page<DependencyOrBlockerRef>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let mut items = Vec::new();
+        for (dependency, _) in state.dependencies.values() {
+            if matches!(
+                dependency.dependency_state,
+                work_contracts::DependencyState::Active
+            ) && (dependency.upstream_work_ref == work_ref
+                || dependency.downstream_work_ref == work_ref)
+            {
+                items.push(DependencyOrBlockerRef::Dependency(
+                    dependency.dependency_ref(),
+                ));
+            }
+        }
+        for (blocker, _) in state.blockers.values() {
+            if matches!(
+                blocker.blocker_state,
+                work_contracts::BlockerState::Open | work_contracts::BlockerState::Mitigating
+            ) && blocker.blocked_work_ref == work_ref
+            {
+                items.push(DependencyOrBlockerRef::Blocker(blocker.blocker_ref()));
+            }
+        }
+        Ok(Page {
+            items,
+            page_info: PageInfo {
+                next_page_token: None,
+                has_more: false,
+            },
+        })
+    }
+
+    async fn load_graph_snapshot(
+        &self,
+        project_ref: ProjectRef,
+    ) -> Result<DependencyGraphSnapshot, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let dependency_edges = state
+            .dependencies
+            .values()
+            .filter_map(|(dependency, _)| {
+                matches!(
+                    dependency.dependency_state,
+                    work_contracts::DependencyState::Active
+                )
+                .then_some((
+                    dependency.upstream_work_ref.clone(),
+                    dependency.downstream_work_ref.clone(),
+                ))
+            })
+            .collect();
+        let active_blockers = state
+            .blockers
+            .values()
+            .filter_map(|(blocker, _)| {
+                matches!(
+                    blocker.blocker_state,
+                    work_contracts::BlockerState::Open | work_contracts::BlockerState::Mitigating
+                )
+                .then_some((blocker.blocked_work_ref.clone(), blocker.blocker_ref()))
+            })
+            .collect();
+        Ok(DependencyGraphSnapshot {
+            project_ref,
+            dependency_edges,
+            active_blockers,
+        })
+    }
+
+    async fn create_dependency(
+        &self,
+        dependency: WorkDependency,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        if state.dependencies.contains_key(&dependency.dependency_id.0) {
+            return Err(RepositoryError::VersionConflict);
+        }
+        state
+            .dependencies
+            .insert(dependency.dependency_id.0.clone(), (dependency, 1));
+        Ok(1)
+    }
+
+    async fn save_dependency(
+        &self,
+        dependency: WorkDependency,
+        expected_version: Version,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let entry = state
+            .dependencies
+            .get_mut(&dependency.dependency_id.0)
+            .ok_or(RepositoryError::NotFound)?;
+        if entry.1 != expected_version {
+            return Err(RepositoryError::VersionConflict);
+        }
+        entry.0 = dependency;
+        entry.1 += 1;
+        Ok(entry.1)
+    }
+
+    async fn create_blocker(
+        &self,
+        blocker: WorkBlocker,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        if state.blockers.contains_key(&blocker.blocker_id.0) {
+            return Err(RepositoryError::VersionConflict);
+        }
+        state
+            .blockers
+            .insert(blocker.blocker_id.0.clone(), (blocker, 1));
+        Ok(1)
+    }
+
+    async fn save_blocker(
+        &self,
+        blocker: WorkBlocker,
+        expected_version: Version,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let entry = state
+            .blockers
+            .get_mut(&blocker.blocker_id.0)
+            .ok_or(RepositoryError::NotFound)?;
+        if entry.1 != expected_version {
+            return Err(RepositoryError::VersionConflict);
+        }
+        entry.0 = blocker;
+        entry.1 += 1;
+        Ok(entry.1)
+    }
+
+    async fn append_change(
+        &self,
+        change: DependencyChangeRecord,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<(), RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        state.dependency_changes.push(change);
+        Ok(())
     }
 }
 

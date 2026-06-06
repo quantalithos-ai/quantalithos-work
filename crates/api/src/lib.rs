@@ -1,20 +1,22 @@
 //! API entrypoints for the Work bounded context.
 
 use work_application::{
-    ApplicationError, ProjectCommandService, ProjectMemberCommandService, PromoteCommandService,
-    WorkItemCommandService,
+    ApplicationError, DependencyBlockerService, ProjectCommandService, ProjectMemberCommandService,
+    PromoteCommandService, WorkItemCommandService,
 };
 use work_contracts::{
-    AssignProjectMemberRequest, BacklogCommandResult, CreateChildWorkItemRequest,
-    CreateProjectRequest, CreateWorkItemRequest, ProjectCommandResult, ProjectMemberCommandResult,
-    PromoteCommandResult, RequestWorkPromotionRequest, ReviewWorkPromotionRequest,
+    AssignProjectMemberRequest, BacklogCommandResult, BlockerCommandResult,
+    CreateChildWorkItemRequest, CreateProjectRequest, CreateWorkItemRequest,
+    DependencyCommandResult, LinkWorkDependencyRequest, OpenWorkBlockerRequest,
+    ProjectCommandResult, ProjectMemberCommandResult, PromoteCommandResult,
+    RequestWorkPromotionRequest, ResolveWorkBlockerRequest, ReviewWorkPromotionRequest,
     UpdateBacklogAvailabilityRequest, UpdateProjectLifecycleRequest,
-    UpdateProjectMemberResponsibilityRequest, UpdateWorkItemLifecycleRequest, WorkCommandEnvelope,
-    WorkItemCommandResult, WorkProtocolError,
+    UpdateProjectMemberResponsibilityRequest, UpdateWorkDependencyStateRequest,
+    UpdateWorkItemLifecycleRequest, WorkCommandEnvelope, WorkItemCommandResult, WorkProtocolError,
 };
 
 /// Thin command handlers that validate protocol shape and delegate to application services.
-pub struct WorkCommandHandlers<P, M, W, PR> {
+pub struct WorkCommandHandlers<P, M, W, PR, D> {
     /// Project-scoped command service.
     pub project_service: P,
     /// Project-member command service.
@@ -23,21 +25,25 @@ pub struct WorkCommandHandlers<P, M, W, PR> {
     pub workitem_service: W,
     /// Promote command service.
     pub promote_service: PR,
+    /// Dependency and blocker command service.
+    pub dependency_service: D,
 }
 
-impl<P, M, W, PR> WorkCommandHandlers<P, M, W, PR> {
+impl<P, M, W, PR, D> WorkCommandHandlers<P, M, W, PR, D> {
     /// Creates a handler set for command delegation.
     pub fn new(
         project_service: P,
         member_service: M,
         workitem_service: W,
         promote_service: PR,
+        dependency_service: D,
     ) -> Self {
         Self {
             project_service,
             member_service,
             workitem_service,
             promote_service,
+            dependency_service,
         }
     }
 }
@@ -92,12 +98,24 @@ impl<
     PI,
     PCC,
     PIDEM,
+    DP,
+    DW,
+    DA,
+    DO,
+    DR,
+    DPR,
+    DU,
+    DE,
+    DI,
+    DC,
+    DIDEM,
 >
     WorkCommandHandlers<
         ProjectCommandService<P, B, A, O, R, PR, U, I, C, IDEM>,
         ProjectMemberCommandService<MP, MPM, MRS, MA, MO, MR, MPR, MU, MM, MI, MC, MIDEM>,
         WorkItemCommandService<WP, WB, WPM, WW, WA, WO, WR, WPR, WU, WS, WE, WI, WC, WIDEM>,
         PromoteCommandService<PP, PB, PW, PPR, PA, PO, PRR, PPROJ, PU, PS, PI, PCC, PIDEM>,
+        DependencyBlockerService<DP, DW, DA, DO, DR, DPR, DU, DE, DI, DC, DIDEM>,
     >
 where
     P: work_application::ProjectRepository,
@@ -149,6 +167,17 @@ where
     PI: work_application::IdGeneratorPort,
     PCC: work_application::ClockPort,
     PIDEM: work_application::IdempotencyRepository,
+    DP: work_application::DependencyRepository,
+    DW: work_application::WorkItemRepository,
+    DA: work_application::AuditRepository,
+    DO: work_application::WorkOutboxRepository,
+    DR: work_application::CommandResultRepository,
+    DPR: work_application::ProjectionRepository,
+    DU: work_application::UnitOfWork,
+    DE: work_application::EvidenceResolverPort,
+    DI: work_application::IdGeneratorPort,
+    DC: work_application::ClockPort,
+    DIDEM: work_application::IdempotencyRepository,
 {
     /// Handles `CreateProject`.
     pub async fn handle_create_project(
@@ -259,6 +288,50 @@ where
             .await
             .map_err(ApplicationError::into_protocol_error)
     }
+
+    /// Handles `LinkWorkDependency`.
+    pub async fn handle_link_work_dependency(
+        &self,
+        envelope: WorkCommandEnvelope<LinkWorkDependencyRequest>,
+    ) -> Result<DependencyCommandResult, WorkProtocolError> {
+        self.dependency_service
+            .link_dependency(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
+
+    /// Handles `UpdateWorkDependencyState`.
+    pub async fn handle_update_work_dependency_state(
+        &self,
+        envelope: WorkCommandEnvelope<UpdateWorkDependencyStateRequest>,
+    ) -> Result<DependencyCommandResult, WorkProtocolError> {
+        self.dependency_service
+            .update_dependency_state(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
+
+    /// Handles `OpenWorkBlocker`.
+    pub async fn handle_open_work_blocker(
+        &self,
+        envelope: WorkCommandEnvelope<OpenWorkBlockerRequest>,
+    ) -> Result<BlockerCommandResult, WorkProtocolError> {
+        self.dependency_service
+            .open_blocker(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
+
+    /// Handles `ResolveWorkBlocker`.
+    pub async fn handle_resolve_work_blocker(
+        &self,
+        envelope: WorkCommandEnvelope<ResolveWorkBlockerRequest>,
+    ) -> Result<BlockerCommandResult, WorkProtocolError> {
+        self.dependency_service
+            .resolve_blocker(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
 }
 
 #[cfg(test)]
@@ -267,21 +340,23 @@ mod tests {
 
     use super::WorkCommandHandlers;
     use work_application::{
-        BacklogRepository, CommandResultRepository, ProjectCommandService,
-        ProjectMemberCommandService, PromoteCommandService, WorkItemCommandService,
+        BacklogRepository, CommandResultRepository, DependencyBlockerService,
+        ProjectCommandService, ProjectMemberCommandService, PromoteCommandService,
+        WorkItemCommandService,
     };
     use work_contracts::metadata::fixtures;
     use work_contracts::{
         AssignProjectMemberRequest, BacklogAvailabilityTarget, BacklogState,
-        CreateChildWorkItemRequest, CreateProjectRequest, CreateWorkItemRequest,
-        DerivedWorkViewRef,
-        IdempotencyResultView, ProjectLifecycleReason, ProjectLifecycleReasonKind,
+        CreateChildWorkItemRequest, CreateProjectRequest, CreateWorkItemRequest, DependencyTarget,
+        DerivedWorkViewRef, IdempotencyResultView, LinkWorkDependencyRequest,
+        OpenWorkBlockerRequest, ProjectLifecycleReason, ProjectLifecycleReasonKind,
         ProjectLifecycleState, ProjectLifecycleTarget, ProjectMemberReason,
         ProjectMemberReasonKind, ProjectMemberResponsibilityState, PromoteResultState,
-        PromoteReviewDecision, RequestWorkPromotionRequest, ResponsibilityTarget,
-        ReviewWorkPromotionRequest, UpdateBacklogAvailabilityRequest,
+        PromoteReviewDecision, RequestWorkPromotionRequest, ResolveWorkBlockerRequest,
+        ResponsibilityTarget, ReviewWorkPromotionRequest, UpdateBacklogAvailabilityRequest,
         UpdateProjectLifecycleRequest, UpdateProjectMemberResponsibilityRequest,
-        UpdateWorkItemLifecycleRequest, WorkCommandEnvelope, WorkItemState, WorkProtocolError,
+        UpdateWorkDependencyStateRequest, UpdateWorkItemLifecycleRequest, WorkCommandEnvelope,
+        WorkItemState, WorkProtocolError,
     };
     use work_infra::clock_id::{DeterministicWorkIdGenerator, FixedClock};
     use work_infra::command_result_store::InMemoryCommandResultRepository;
@@ -347,6 +422,19 @@ mod tests {
             InMemoryWorkStores,
             InMemoryWorkStores,
             FakeSourceWorkResolverPort,
+            DeterministicWorkIdGenerator,
+            FixedClock,
+            InMemoryIdempotencyRepository,
+        >,
+        DependencyBlockerService<
+            InMemoryWorkStores,
+            InMemoryWorkStores,
+            InMemoryWorkStores,
+            InMemoryWorkOutboxRepository,
+            InMemoryCommandResultRepository,
+            InMemoryWorkStores,
+            InMemoryWorkStores,
+            FakeEvidenceResolverPort,
             DeterministicWorkIdGenerator,
             FixedClock,
             InMemoryIdempotencyRepository,
@@ -429,12 +517,26 @@ mod tests {
             clock: clock.clone(),
             idempotency: idempotency.clone(),
         };
+        let dependency_service = DependencyBlockerService {
+            dependency_repo: stores.clone(),
+            work_repo: stores.clone(),
+            audit_repo: stores.clone(),
+            outbox_repo: outbox.clone(),
+            command_results: results.clone(),
+            projection_repo: stores.clone(),
+            unit_of_work: stores.clone(),
+            evidence_resolver: evidence_refs.clone(),
+            ids: ids.clone(),
+            clock: clock.clone(),
+            idempotency: idempotency.clone(),
+        };
         (
             WorkCommandHandlers::new(
                 project_service,
                 member_service,
                 workitem_service,
                 promote_service,
+                dependency_service,
             ),
             stores,
             outbox,
@@ -1052,7 +1154,7 @@ mod tests {
 
         evidence_refs.seed(
             fixtures::completion_evidence_ref(),
-            EvidenceResolverOutcome::Success,
+            EvidenceResolverOutcome::Success(work_contracts::EvidenceVerifiedState::Verified),
         );
         let completed = handlers
             .handle_update_work_item_lifecycle(WorkCommandEnvelope {
@@ -1080,6 +1182,467 @@ mod tests {
         assert_eq!(stores.trace_count(), 6);
         assert_eq!(stores.stale_mark_count(), 6);
         assert_eq!(outbox.count(), 6);
+    }
+
+    #[tokio::test]
+    async fn tc_work_dep_001_link_work_dependency_persists_truth_and_side_effects() {
+        let (
+            handlers,
+            stores,
+            outbox,
+            results,
+            _idempotency,
+            member_refs,
+            source_refs,
+            _evidence_refs,
+        ) = build_handlers();
+        let (created, assigned) = prepare_formal_work_context(&handlers, &member_refs).await;
+        source_refs.seed(
+            fixtures::source_work_ref(),
+            SourceResolverOutcome::Success {
+                has_external_body: false,
+            },
+        );
+
+        let upstream = handlers
+            .handle_create_work_item(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-001-upstream"),
+                command: CreateWorkItemRequest {
+                    project_ref: created.project_ref.clone(),
+                    work_intent: work_contracts::FormalWorkIntent {
+                        assignee_ref: assigned.project_member_ref.clone(),
+                        ..fixtures::formal_work_intent()
+                    },
+                    source_ref: fixtures::source_work_ref(),
+                },
+            })
+            .await
+            .expect("upstream create should succeed");
+        let downstream = handlers
+            .handle_create_work_item(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-001-downstream"),
+                command: CreateWorkItemRequest {
+                    project_ref: created.project_ref.clone(),
+                    work_intent: work_contracts::FormalWorkIntent {
+                        assignee_ref: assigned.project_member_ref.clone(),
+                        title: fixtures::work_title("Downstream work"),
+                        ..fixtures::formal_work_intent()
+                    },
+                    source_ref: fixtures::source_work_ref(),
+                },
+            })
+            .await
+            .expect("downstream create should succeed");
+
+        let result = handlers
+            .handle_link_work_dependency(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-001"),
+                command: LinkWorkDependencyRequest {
+                    upstream_work_ref: upstream.work_ref.clone(),
+                    downstream_work_ref: downstream.work_ref.clone(),
+                    reason: fixtures::dependency_reason(),
+                },
+            })
+            .await
+            .expect("link should succeed");
+
+        assert_eq!(
+            result.dependency_state,
+            work_contracts::DependencyState::Active
+        );
+        assert_eq!(result.receipt.idempotency, IdempotencyResultView::Applied);
+        assert_eq!(result.receipt.outbox_record_refs.len(), 1);
+        assert!(
+            results
+                .get_result(result.receipt.result_ref.clone())
+                .await
+                .expect("stored dependency result read should succeed")
+                .is_some()
+        );
+        assert_eq!(stores.trace_count(), 5);
+        assert_eq!(stores.stale_mark_count(), 5);
+        assert_eq!(outbox.count(), 5);
+        let stale_marks = stores.stale_marks();
+        let stale = stale_marks.last().expect("stale mark should exist");
+        assert_eq!(
+            stale.0,
+            vec![
+                DerivedWorkViewRef::project_board(created.project_ref),
+                DerivedWorkViewRef::member_work(assigned.project_member_ref),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn tc_work_dep_002_cycle_reject_does_not_write_truth() {
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            member_refs,
+            source_refs,
+            _evidence_refs,
+        ) = build_handlers();
+        let (created, assigned) = prepare_formal_work_context(&handlers, &member_refs).await;
+        source_refs.seed(
+            fixtures::source_work_ref(),
+            SourceResolverOutcome::Success {
+                has_external_body: false,
+            },
+        );
+
+        let first = handlers
+            .handle_create_work_item(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-002-first"),
+                command: CreateWorkItemRequest {
+                    project_ref: created.project_ref.clone(),
+                    work_intent: work_contracts::FormalWorkIntent {
+                        assignee_ref: assigned.project_member_ref.clone(),
+                        ..fixtures::formal_work_intent()
+                    },
+                    source_ref: fixtures::source_work_ref(),
+                },
+            })
+            .await
+            .expect("first work should succeed");
+        let second = handlers
+            .handle_create_work_item(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-002-second"),
+                command: CreateWorkItemRequest {
+                    project_ref: created.project_ref.clone(),
+                    work_intent: work_contracts::FormalWorkIntent {
+                        assignee_ref: assigned.project_member_ref.clone(),
+                        title: fixtures::work_title("Second"),
+                        ..fixtures::formal_work_intent()
+                    },
+                    source_ref: fixtures::source_work_ref(),
+                },
+            })
+            .await
+            .expect("second work should succeed");
+
+        handlers
+            .handle_link_work_dependency(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-002-a"),
+                command: LinkWorkDependencyRequest {
+                    upstream_work_ref: first.work_ref.clone(),
+                    downstream_work_ref: second.work_ref.clone(),
+                    reason: fixtures::dependency_reason(),
+                },
+            })
+            .await
+            .expect("first link should succeed");
+
+        let error = handlers
+            .handle_link_work_dependency(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-002-b"),
+                command: LinkWorkDependencyRequest {
+                    upstream_work_ref: second.work_ref,
+                    downstream_work_ref: first.work_ref,
+                    reason: fixtures::dependency_reason(),
+                },
+            })
+            .await
+            .expect_err("cycle should be rejected");
+
+        assert_eq!(error, WorkProtocolError::DomainRejected);
+        assert_eq!(stores.trace_count(), 5);
+        assert_eq!(stores.stale_mark_count(), 5);
+        assert_eq!(outbox.count(), 5);
+    }
+
+    #[tokio::test]
+    async fn tc_work_dep_003_update_dependency_state_requires_reason_and_evidence() {
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            member_refs,
+            source_refs,
+            evidence_refs,
+        ) = build_handlers();
+        let (created, assigned) = prepare_formal_work_context(&handlers, &member_refs).await;
+        source_refs.seed(
+            fixtures::source_work_ref(),
+            SourceResolverOutcome::Success {
+                has_external_body: false,
+            },
+        );
+
+        let upstream = handlers
+            .handle_create_work_item(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-003-upstream"),
+                command: CreateWorkItemRequest {
+                    project_ref: created.project_ref.clone(),
+                    work_intent: work_contracts::FormalWorkIntent {
+                        assignee_ref: assigned.project_member_ref.clone(),
+                        ..fixtures::formal_work_intent()
+                    },
+                    source_ref: fixtures::source_work_ref(),
+                },
+            })
+            .await
+            .expect("upstream create should succeed");
+        let downstream = handlers
+            .handle_create_work_item(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-003-downstream"),
+                command: CreateWorkItemRequest {
+                    project_ref: created.project_ref,
+                    work_intent: work_contracts::FormalWorkIntent {
+                        assignee_ref: assigned.project_member_ref.clone(),
+                        title: fixtures::work_title("dep-downstream"),
+                        ..fixtures::formal_work_intent()
+                    },
+                    source_ref: fixtures::source_work_ref(),
+                },
+            })
+            .await
+            .expect("downstream create should succeed");
+
+        let linked = handlers
+            .handle_link_work_dependency(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-003-link"),
+                command: LinkWorkDependencyRequest {
+                    upstream_work_ref: upstream.work_ref.clone(),
+                    downstream_work_ref: downstream.work_ref.clone(),
+                    reason: fixtures::dependency_reason(),
+                },
+            })
+            .await
+            .expect("link should succeed");
+
+        let mismatch = handlers
+            .handle_update_work_dependency_state(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-003-mismatch"),
+                command: UpdateWorkDependencyStateRequest {
+                    dependency_ref: linked.dependency_ref.clone(),
+                    target: DependencyTarget::Waived,
+                    reason: fixtures::dependency_activated_reason(),
+                    evidence_ref: None,
+                    expected_version: 1,
+                },
+            })
+            .await
+            .expect_err("reason-kind mismatch should fail");
+        assert_eq!(mismatch, WorkProtocolError::InvalidRequest);
+
+        evidence_refs.seed(
+            fixtures::completion_evidence_ref(),
+            EvidenceResolverOutcome::Success(work_contracts::EvidenceVerifiedState::Verified),
+        );
+        let satisfied = handlers
+            .handle_update_work_dependency_state(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-003-satisfied"),
+                command: UpdateWorkDependencyStateRequest {
+                    dependency_ref: linked.dependency_ref.clone(),
+                    target: DependencyTarget::Satisfied,
+                    reason: fixtures::dependency_satisfied_reason(),
+                    evidence_ref: Some(fixtures::completion_evidence_ref()),
+                    expected_version: 1,
+                },
+            })
+            .await
+            .expect("satisfied should succeed");
+        assert_eq!(
+            satisfied.dependency_state,
+            work_contracts::DependencyState::Satisfied
+        );
+
+        let reopen = handlers
+            .handle_update_work_dependency_state(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-003-reopen"),
+                command: UpdateWorkDependencyStateRequest {
+                    dependency_ref: linked.dependency_ref,
+                    target: DependencyTarget::Active,
+                    reason: fixtures::dependency_activated_reason(),
+                    evidence_ref: None,
+                    expected_version: 2,
+                },
+            })
+            .await
+            .expect_err("terminal dependency must not reopen");
+        assert_eq!(reopen, WorkProtocolError::DomainRejected);
+        assert_eq!(stores.trace_count(), 6);
+        assert_eq!(stores.stale_mark_count(), 6);
+        assert_eq!(outbox.count(), 6);
+    }
+
+    #[tokio::test]
+    async fn tc_work_dep_004_open_blocker_persists_truth_and_side_effects() {
+        let (
+            handlers,
+            stores,
+            outbox,
+            results,
+            _idempotency,
+            member_refs,
+            source_refs,
+            _evidence_refs,
+        ) = build_handlers();
+        let (created, assigned) = prepare_formal_work_context(&handlers, &member_refs).await;
+        source_refs.seed(
+            fixtures::source_work_ref(),
+            SourceResolverOutcome::Success {
+                has_external_body: false,
+            },
+        );
+
+        let work = handlers
+            .handle_create_work_item(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-004-work"),
+                command: CreateWorkItemRequest {
+                    project_ref: created.project_ref.clone(),
+                    work_intent: work_contracts::FormalWorkIntent {
+                        assignee_ref: assigned.project_member_ref.clone(),
+                        ..fixtures::formal_work_intent()
+                    },
+                    source_ref: fixtures::source_work_ref(),
+                },
+            })
+            .await
+            .expect("work create should succeed");
+
+        let result = handlers
+            .handle_open_work_blocker(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-004"),
+                command: OpenWorkBlockerRequest {
+                    blocked_work_ref: work.work_ref,
+                    cause_ref: fixtures::blocker_cause_ref(),
+                },
+            })
+            .await
+            .expect("open blocker should succeed");
+
+        assert_eq!(result.blocker_state, work_contracts::BlockerState::Open);
+        assert!(
+            results
+                .get_result(result.receipt.result_ref.clone())
+                .await
+                .expect("stored blocker result read should succeed")
+                .is_some()
+        );
+        assert_eq!(stores.trace_count(), 4);
+        assert_eq!(stores.stale_mark_count(), 4);
+        assert_eq!(outbox.count(), 4);
+    }
+
+    #[tokio::test]
+    async fn tc_work_dep_005_resolve_blocker_requires_verified_evidence() {
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            member_refs,
+            source_refs,
+            evidence_refs,
+        ) = build_handlers();
+        let (created, assigned) = prepare_formal_work_context(&handlers, &member_refs).await;
+        source_refs.seed(
+            fixtures::source_work_ref(),
+            SourceResolverOutcome::Success {
+                has_external_body: false,
+            },
+        );
+
+        let work = handlers
+            .handle_create_work_item(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-005-work"),
+                command: CreateWorkItemRequest {
+                    project_ref: created.project_ref,
+                    work_intent: work_contracts::FormalWorkIntent {
+                        assignee_ref: assigned.project_member_ref,
+                        ..fixtures::formal_work_intent()
+                    },
+                    source_ref: fixtures::source_work_ref(),
+                },
+            })
+            .await
+            .expect("work create should succeed");
+        let opened = handlers
+            .handle_open_work_blocker(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-005-open"),
+                command: OpenWorkBlockerRequest {
+                    blocked_work_ref: work.work_ref.clone(),
+                    cause_ref: fixtures::blocker_cause_ref(),
+                },
+            })
+            .await
+            .expect("open blocker should succeed");
+
+        let unresolved = handlers
+            .handle_resolve_work_blocker(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-005-unresolved"),
+                command: ResolveWorkBlockerRequest {
+                    blocker_ref: opened.blocker_ref.clone(),
+                    evidence_ref: fixtures::blocker_resolution_evidence_ref(),
+                    expected_version: 1,
+                },
+            })
+            .await
+            .expect_err("missing evidence resolution should fail");
+        assert_eq!(unresolved, WorkProtocolError::ExternalReferenceUnresolved);
+
+        evidence_refs.seed(
+            fixtures::blocker_resolution_evidence_ref(),
+            EvidenceResolverOutcome::Success(work_contracts::EvidenceVerifiedState::Verified),
+        );
+        let resolved = handlers
+            .handle_resolve_work_blocker(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-005-resolved"),
+                command: ResolveWorkBlockerRequest {
+                    blocker_ref: opened.blocker_ref.clone(),
+                    evidence_ref: fixtures::blocker_resolution_evidence_ref(),
+                    expected_version: 1,
+                },
+            })
+            .await
+            .expect("verified blocker evidence should succeed");
+        assert_eq!(
+            resolved.blocker_state,
+            work_contracts::BlockerState::Resolved
+        );
+
+        let closed_again = handlers
+            .handle_resolve_work_blocker(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-dep-005-retry"),
+                command: ResolveWorkBlockerRequest {
+                    blocker_ref: opened.blocker_ref,
+                    evidence_ref: fixtures::blocker_resolution_evidence_ref(),
+                    expected_version: 2,
+                },
+            })
+            .await
+            .expect_err("resolved blocker must not resolve again");
+        assert_eq!(closed_again, WorkProtocolError::DomainRejected);
+        assert_eq!(stores.trace_count(), 5);
+        assert_eq!(stores.stale_mark_count(), 5);
+        assert_eq!(outbox.count(), 5);
     }
 
     #[tokio::test]

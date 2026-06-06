@@ -5,8 +5,9 @@ use std::sync::{Arc, Mutex};
 use core_contracts::metadata::Timestamp;
 use work_application::{ClockPort, IdGeneratorPort, PortError};
 use work_contracts::{
-    BacklogId, ChildWorkItemId, ProjectId, ProjectMemberId, PromoteDecisionId, PromoteResultId,
-    ResultId, WorkItemId, WorkOutboxId, WorkTraceId,
+    BacklogId, ChildWorkItemId, DependencyChangeId, ProjectId, ProjectMemberId, PromoteDecisionId,
+    PromoteResultId, ResultId, WorkBlockerId, WorkDependencyId, WorkItemId, WorkOutboxId,
+    WorkTraceId,
 };
 
 /// Deterministic id generator for P0 fake adapters and tests.
@@ -23,7 +24,10 @@ struct Counters {
     work_item: u64,
     child_work_item: u64,
     promote_result: u64,
+    work_dependency: u64,
+    work_blocker: u64,
     promote_decision: u64,
+    dependency_change: u64,
     result: u64,
     outbox: u64,
     trace: u64,
@@ -82,12 +86,36 @@ impl IdGeneratorPort for DeterministicWorkIdGenerator {
         )))
     }
 
+    fn next_work_dependency_id(&self) -> Result<WorkDependencyId, PortError> {
+        let mut counters = self.counters.lock().map_err(|_| PortError::Unavailable)?;
+        counters.work_dependency += 1;
+        Ok(WorkDependencyId(format!(
+            "dependency-{}",
+            counters.work_dependency
+        )))
+    }
+
+    fn next_work_blocker_id(&self) -> Result<WorkBlockerId, PortError> {
+        let mut counters = self.counters.lock().map_err(|_| PortError::Unavailable)?;
+        counters.work_blocker += 1;
+        Ok(WorkBlockerId(format!("blocker-{}", counters.work_blocker)))
+    }
+
     fn next_promote_decision_id(&self) -> Result<PromoteDecisionId, PortError> {
         let mut counters = self.counters.lock().map_err(|_| PortError::Unavailable)?;
         counters.promote_decision += 1;
         Ok(PromoteDecisionId(format!(
             "promote-decision-{}",
             counters.promote_decision
+        )))
+    }
+
+    fn next_dependency_change_id(&self) -> Result<DependencyChangeId, PortError> {
+        let mut counters = self.counters.lock().map_err(|_| PortError::Unavailable)?;
+        counters.dependency_change += 1;
+        Ok(DependencyChangeId(format!(
+            "dependency-change-{}",
+            counters.dependency_change
         )))
     }
 

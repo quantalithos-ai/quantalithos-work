@@ -6,14 +6,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::UnitOfWorkHandle;
 use work_contracts::{
-    BacklogRef, DerivedWorkViewRef, ExternalEvidenceRef, ExternalSourceSummary, FormalWorkRef,
-    GlobalMemberRef, OutboxFailureReason, OutboxPublicationRef, OutboxRetryReason, ProjectMemberId,
-    ProjectMemberRef, ProjectOwnerRef, ProjectRef, PromoteResultRef, SourceWorkRef,
-    WorkAuditSubjectRef, WorkOutboxId, WorkTruthCursor,
+    BacklogRef, DependencyOrBlockerRef, DerivedWorkViewRef, ExternalEvidenceRef,
+    ExternalSourceSummary, FormalWorkRef, GlobalMemberRef, OutboxFailureReason,
+    OutboxPublicationRef, OutboxRetryReason, ProjectMemberId, ProjectMemberRef, ProjectOwnerRef,
+    ProjectRef, PromoteResultRef, SourceWorkRef, WorkAuditSubjectRef, WorkBlockerId,
+    WorkBlockerRef, WorkDependencyId, WorkDependencyRef, WorkOutboxId, WorkTruthCursor,
 };
 use work_domain::{
-    Backlog, ChildWorkItem, MemberCapabilitySnapshot, PendingPromoteIntake, ProjectMember,
-    PromoteDecisionRecord, PromoteResult, TraceHandoffMarker, WorkAuditTrail, WorkItem,
+    Backlog, ChildWorkItem, DependencyChangeRecord, DependencyGraphSnapshot,
+    MemberCapabilitySnapshot, PendingPromoteIntake, ProjectMember, PromoteDecisionRecord,
+    PromoteResult, TraceHandoffMarker, WorkAuditTrail, WorkBlocker, WorkDependency, WorkItem,
     WorkOutboxRecord, WorkTraceRecord,
 };
 
@@ -80,10 +82,14 @@ pub struct SourceWorkResolution {
 }
 
 /// Safe evidence summary returned by the evidence resolver.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EvidenceResolution {
     /// Stable evidence reference accepted by the resolver.
     pub evidence_ref: ExternalEvidenceRef,
+    /// Verified state returned by the resolver.
+    pub verified_state: work_contracts::EvidenceVerifiedState,
+    /// Reference-resolution state returned by the resolver.
+    pub reference_state: work_domain::ReferenceResolutionState,
 }
 
 /// Repository-loaded formal work truth.
@@ -119,6 +125,19 @@ impl FormalWorkRecord {
             Self::ChildWorkItem(child) => child.work_state,
         }
     }
+}
+
+/// Repository-resolved scope for one formal work record.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct FormalWorkScope {
+    /// Stable formal work reference for the resolved scope.
+    pub work_ref: FormalWorkRef,
+    /// Project that owns the formal work.
+    pub project_ref: ProjectRef,
+    /// Backlog that owns the formal work.
+    pub backlog_ref: BacklogRef,
+    /// Assignee whose member-work view should be marked stale when known.
+    pub assignee_ref: Option<ProjectMemberRef>,
 }
 
 /// Stores Work-owned project truth.
@@ -250,6 +269,12 @@ pub trait WorkItemRepository: Send + Sync {
         work_ref: FormalWorkRef,
     ) -> Result<Option<FormalWorkRecord>, RepositoryError>;
 
+    /// Loads project/backlog/member scope for one formal work reference.
+    async fn get_formal_work_scope(
+        &self,
+        work_ref: FormalWorkRef,
+    ) -> Result<Option<FormalWorkScope>, RepositoryError>;
+
     /// Creates a root work item inside the current unit of work.
     async fn create_work_item(
         &self,
@@ -271,6 +296,72 @@ pub trait WorkItemRepository: Send + Sync {
         expected_version: Version,
         uow: &UnitOfWorkHandle,
     ) -> Result<Version, RepositoryError>;
+}
+
+/// Stores dependency and blocker truth plus relation history.
+#[async_trait]
+pub trait DependencyRepository: Send + Sync {
+    /// Loads one dependency relation by stable ref.
+    async fn get_dependency(
+        &self,
+        dependency_ref: WorkDependencyRef,
+    ) -> Result<Option<WorkDependency>, RepositoryError>;
+
+    /// Loads one blocker relation by stable ref.
+    async fn get_blocker(
+        &self,
+        blocker_ref: WorkBlockerRef,
+    ) -> Result<Option<WorkBlocker>, RepositoryError>;
+
+    /// Lists active dependency and blocker refs for one formal work record.
+    async fn list_active_for_work(
+        &self,
+        work_ref: FormalWorkRef,
+        page: PageRequest,
+    ) -> Result<Page<DependencyOrBlockerRef>, RepositoryError>;
+
+    /// Loads the dependency graph snapshot for one project scope.
+    async fn load_graph_snapshot(
+        &self,
+        project_ref: ProjectRef,
+    ) -> Result<DependencyGraphSnapshot, RepositoryError>;
+
+    /// Creates a dependency relation inside the current unit of work.
+    async fn create_dependency(
+        &self,
+        dependency: WorkDependency,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError>;
+
+    /// Saves a dependency relation inside the current unit of work.
+    async fn save_dependency(
+        &self,
+        dependency: WorkDependency,
+        expected_version: Version,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError>;
+
+    /// Creates a blocker relation inside the current unit of work.
+    async fn create_blocker(
+        &self,
+        blocker: WorkBlocker,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError>;
+
+    /// Saves a blocker relation inside the current unit of work.
+    async fn save_blocker(
+        &self,
+        blocker: WorkBlocker,
+        expected_version: Version,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError>;
+
+    /// Appends dependency or blocker history inside the current unit of work.
+    async fn append_change(
+        &self,
+        change: DependencyChangeRecord,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<(), RepositoryError>;
 }
 
 /// Stores promote decisions and runtime intake markers.
@@ -480,8 +571,17 @@ pub trait IdGeneratorPort: Send + Sync {
     /// Generates a promote result id.
     fn next_promote_result_id(&self) -> Result<work_contracts::PromoteResultId, PortError>;
 
+    /// Generates a dependency id.
+    fn next_work_dependency_id(&self) -> Result<WorkDependencyId, PortError>;
+
+    /// Generates a blocker id.
+    fn next_work_blocker_id(&self) -> Result<WorkBlockerId, PortError>;
+
     /// Generates a promote decision history id.
     fn next_promote_decision_id(&self) -> Result<work_contracts::PromoteDecisionId, PortError>;
+
+    /// Generates a dependency or blocker history id.
+    fn next_dependency_change_id(&self) -> Result<work_contracts::DependencyChangeId, PortError>;
 
     /// Generates a result id.
     fn next_result_id(&self) -> Result<work_contracts::ResultId, PortError>;

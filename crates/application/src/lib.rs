@@ -1,5 +1,6 @@
 //! Application services for the Work bounded context.
 
+mod dependency;
 mod errors;
 mod idempotency;
 mod member;
@@ -10,6 +11,7 @@ mod results;
 mod unit_of_work;
 mod workitem;
 
+pub use dependency::DependencyBlockerService;
 pub use errors::ApplicationError;
 pub use idempotency::{
     IdempotencyConflict, IdempotencyError, IdempotencyRecord, IdempotencyRepository,
@@ -17,11 +19,12 @@ pub use idempotency::{
 };
 pub use member::ProjectMemberCommandService;
 pub use ports::{
-    AuditRepository, BacklogRepository, ClockPort, EvidenceResolution, EvidenceResolverPort,
-    FormalWorkRecord, IdGeneratorPort, MemberCapabilitySnapshotInput, MemberReferencePort, Page,
-    PageInfo, PortError, ProjectMemberRepository, ProjectRepository, ProjectionRepository,
-    PromoteRepository, ReferenceSnapshotRepository, RepositoryError, SourceWorkResolution,
-    SourceWorkResolverPort, WorkItemRepository, WorkOutboxRepository,
+    AuditRepository, BacklogRepository, ClockPort, DependencyRepository, EvidenceResolution,
+    EvidenceResolverPort, FormalWorkRecord, FormalWorkScope, IdGeneratorPort,
+    MemberCapabilitySnapshotInput, MemberReferencePort, Page, PageInfo, PortError,
+    ProjectMemberRepository, ProjectRepository, ProjectionRepository, PromoteRepository,
+    ReferenceSnapshotRepository, RepositoryError, SourceWorkResolution, SourceWorkResolverPort,
+    WorkItemRepository, WorkOutboxRepository,
 };
 pub use project::ProjectCommandService;
 pub use promote::PromoteCommandService;

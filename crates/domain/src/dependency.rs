@@ -6,8 +6,8 @@ use crate::DomainError;
 use work_contracts::{
     BlockerCauseRef, BlockerImpactExplanation, BlockerState, DependencyChangeId,
     DependencyChangeReason, DependencyChangeReasonKind, DependencyOrBlockerRef, DependencyReason,
-    DependencyState, DependencyTarget, ExternalEvidenceRef, FormalWorkRef, SafeSummaryText,
-    WorkBlockerId, WorkBlockerRef, WorkDependencyId, WorkDependencyRef,
+    DependencyState, DependencyTarget, ExternalEvidenceRef, FormalWorkRef, ProjectRef,
+    SafeSummaryText, WorkBlockerId, WorkBlockerRef, WorkDependencyId, WorkDependencyRef,
 };
 
 /// Represents an explainable dependency between formal work records.
@@ -268,6 +268,8 @@ impl DependencyChangeRecord {
 /// Snapshot of dependency edges used by the graph policy.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DependencyGraphSnapshot {
+    /// Project scope that produced this graph snapshot.
+    pub project_ref: ProjectRef,
     /// Formal work edges in the project.
     pub dependency_edges: Vec<(FormalWorkRef, FormalWorkRef)>,
     /// Currently active blockers by formal work.
@@ -289,7 +291,7 @@ impl DependencyGraphPolicy {
 
     /// Validates that a dependency edge may be created.
     pub fn assert_can_link(
-        &self,
+        graph: &DependencyGraphSnapshot,
         upstream: FormalWorkRef,
         downstream: FormalWorkRef,
     ) -> Result<(), DomainError> {
@@ -297,17 +299,19 @@ impl DependencyGraphPolicy {
             return Err(DomainError::PolicyRejected);
         }
 
-        if self.graph_snapshot.dependency_edges.iter().any(
-            |(existing_upstream, existing_downstream)| {
+        if graph
+            .dependency_edges
+            .iter()
+            .any(|(existing_upstream, existing_downstream)| {
                 *existing_upstream == downstream && *existing_downstream == upstream
-            },
-        ) {
+            })
+        {
             return Err(DomainError::PolicyRejected);
         }
 
         let mut stack = vec![downstream.clone()];
         let mut visited = Vec::new();
-        let edges = &self.graph_snapshot.dependency_edges;
+        let edges = &graph.dependency_edges;
         while let Some(current) = stack.pop() {
             if visited.contains(&current) {
                 continue;
@@ -339,7 +343,8 @@ impl DependencyGraphPolicy {
                 {
                     return Err(DomainError::PolicyRejected);
                 }
-                self.assert_can_link(
+                Self::assert_can_link(
+                    &self.graph_snapshot,
                     dependency.upstream_work_ref.clone(),
                     dependency.downstream_work_ref.clone(),
                 )?;

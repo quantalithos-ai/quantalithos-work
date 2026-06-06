@@ -4,8 +4,8 @@ use async_trait::async_trait;
 
 use crate::{RepositoryError, UnitOfWorkHandle};
 use work_contracts::{
-    ApplicationResultRef, BacklogCommandResult, ProjectCommandResult, ProjectMemberCommandResult,
-    PromoteCommandResult, WorkItemCommandResult,
+    ApplicationResultRef, BacklogCommandResult, BlockerCommandResult, DependencyCommandResult,
+    ProjectCommandResult, ProjectMemberCommandResult, PromoteCommandResult, WorkItemCommandResult,
 };
 
 /// Stores public command result surfaces for idempotency duplicate replay.
@@ -39,6 +39,10 @@ pub enum StoredCommandResult {
     WorkItem(WorkItemCommandResult),
     /// Stored result for Promote command operations.
     Promote(PromoteCommandResult),
+    /// Stored result for dependency command operations.
+    Dependency(DependencyCommandResult),
+    /// Stored result for blocker command operations.
+    Blocker(BlockerCommandResult),
 }
 
 impl StoredCommandResult {
@@ -101,6 +105,32 @@ impl StoredCommandResult {
     ) -> Option<PromoteCommandResult> {
         match self {
             Self::Promote(result) if result.receipt.result_ref.operation == *operation => {
+                Some(result)
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns the stored dependency result when the operation expects it.
+    pub fn into_dependency_result(
+        self,
+        operation: &core_contracts::metadata::OperationName,
+    ) -> Option<DependencyCommandResult> {
+        match self {
+            Self::Dependency(result) if result.receipt.result_ref.operation == *operation => {
+                Some(result)
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns the stored blocker result when the operation expects it.
+    pub fn into_blocker_result(
+        self,
+        operation: &core_contracts::metadata::OperationName,
+    ) -> Option<BlockerCommandResult> {
+        match self {
+            Self::Blocker(result) if result.receipt.result_ref.operation == *operation => {
                 Some(result)
             }
             _ => None,
