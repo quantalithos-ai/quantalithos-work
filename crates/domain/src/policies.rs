@@ -61,6 +61,7 @@ impl WorkTruthPolicy {
                     return Err(DomainError::RefMismatch);
                 }
             }
+            WorkTruthChange::WorkRelationChanged(_) => {}
         }
 
         Ok(())

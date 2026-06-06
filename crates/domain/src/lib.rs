@@ -1,12 +1,17 @@
 //! Domain types for the Work bounded context.
 
 mod audit;
+mod dependency;
 mod errors;
 mod policies;
 mod project;
 mod promote;
 
 pub use audit::{TraceHandoffMarker, WorkAuditTrail, WorkOutboxRecord, WorkTraceRecord};
+pub use dependency::{
+    DependencyChangeRecord, DependencyGraphPolicy, DependencyGraphSnapshot, WorkBlocker,
+    WorkDependency,
+};
 pub use errors::DomainError;
 pub use policies::{
     BacklogAvailabilityPolicy, CompletionEvidencePolicy, FormalWorkPolicy,
@@ -23,19 +28,20 @@ mod tests {
     use core_contracts::actor::{ActorKind, ActorRef};
 
     use crate::{
-        Backlog, ChildWorkItem, DomainError, FormalWorkPolicy, MemberCapabilitySnapshot,
+        Backlog, ChildWorkItem, DependencyChangeRecord, DependencyGraphPolicy,
+        DependencyGraphSnapshot, DomainError, FormalWorkPolicy, MemberCapabilitySnapshot,
         PendingPromoteIntake, Project, ProjectMember, PromoteDecisionRecord, PromoteResult,
-        TraceHandoffMarker, WorkAuditTrail, WorkItem, WorkOutboxRecord, WorkTraceRecord,
-        WorkTruthPolicy,
+        TraceHandoffMarker, WorkAuditTrail, WorkBlocker, WorkDependency, WorkItem,
+        WorkOutboxRecord, WorkTraceRecord, WorkTruthPolicy,
     };
     use work_contracts::{
         BacklogAvailabilityTarget, BacklogMaintenanceReason, BacklogMaintenanceReasonKind,
-        ExternalSourceSummary, OutboxPublicationState, ProjectLifecycleReason,
-        ProjectLifecycleReasonKind, ProjectLifecycleState, ProjectLifecycleTarget,
-        ProjectMemberReason, ProjectMemberReasonKind, ProjectMemberResponsibilityState,
-        PromoteDecisionId, PromoteResultState, TraceHandoffTargetKind, TraceHandoffTargetRef,
-        WorkAuditSubjectRef, WorkLifecycleTarget, WorkOutboxEventKind, WorkTraceSubjectRef,
-        WorkTruthChange, fixtures,
+        DependencyChangeId, DependencyOrBlockerRef, ExternalSourceSummary, OutboxPublicationState,
+        ProjectLifecycleReason, ProjectLifecycleReasonKind, ProjectLifecycleState,
+        ProjectLifecycleTarget, ProjectMemberReason, ProjectMemberReasonKind,
+        ProjectMemberResponsibilityState, PromoteDecisionId, PromoteResultState,
+        TraceHandoffTargetKind, TraceHandoffTargetRef, WorkAuditSubjectRef, WorkLifecycleTarget,
+        WorkOutboxEventKind, WorkTraceSubjectRef, WorkTruthChange, fixtures,
     };
 
     fn actor() -> ActorRef {
@@ -522,6 +528,220 @@ mod tests {
     }
 
     #[test]
+    fn dependency_state_transitions_follow_matrix() {
+        let actor = actor();
+        let mut dependency = WorkDependency::link(
+            fixtures::work_dependency_id(),
+            fixtures::formal_work_ref(),
+            fixtures::downstream_formal_work_ref(),
+            fixtures::dependency_reason(),
+        )
+        .expect("link should create proposed dependency");
+        assert_eq!(
+            dependency.dependency_state,
+            work_contracts::DependencyState::Proposed
+        );
+
+        dependency
+            .activate(actor.clone(), fixtures::dependency_activated_reason())
+            .expect("proposed -> active should succeed");
+        assert_eq!(
+            dependency.dependency_state,
+            work_contracts::DependencyState::Active
+        );
+
+        let mut satisfied = dependency.clone();
+        satisfied
+            .mark_satisfied(fixtures::completion_evidence_ref(), actor.clone())
+            .expect("active -> satisfied should succeed");
+        assert_eq!(
+            satisfied.dependency_state,
+            work_contracts::DependencyState::Satisfied
+        );
+
+        let mut waived = dependency.clone();
+        waived
+            .waive(fixtures::dependency_waived_reason(), actor.clone())
+            .expect("active -> waived should succeed");
+        assert_eq!(
+            waived.dependency_state,
+            work_contracts::DependencyState::Waived
+        );
+
+        let mut cancelled = dependency.clone();
+        cancelled
+            .cancel(fixtures::dependency_cancelled_reason(), actor.clone())
+            .expect("active -> cancelled should succeed");
+        assert_eq!(
+            cancelled.dependency_state,
+            work_contracts::DependencyState::Cancelled
+        );
+
+        let mut proposed = WorkDependency::link(
+            fixtures::work_dependency_id(),
+            fixtures::formal_work_ref(),
+            fixtures::downstream_formal_work_ref(),
+            fixtures::dependency_reason(),
+        )
+        .expect("link should create proposed dependency");
+        let err = proposed
+            .activate(actor, fixtures::dependency_waived_reason())
+            .expect_err("activate should reject wrong reason kind");
+        assert_eq!(err, DomainError::PolicyRejected);
+    }
+
+    #[test]
+    fn dependency_graph_policy_rejects_self_edge_cycle_and_terminal_reopen() {
+        let actor = actor();
+        let policy = DependencyGraphPolicy::from_graph(DependencyGraphSnapshot {
+            dependency_edges: vec![(
+                fixtures::downstream_formal_work_ref(),
+                fixtures::formal_work_ref(),
+            )],
+            active_blockers: Vec::new(),
+        });
+
+        let err = policy
+            .assert_can_link(fixtures::formal_work_ref(), fixtures::formal_work_ref())
+            .expect_err("self dependency must fail");
+        assert_eq!(err, DomainError::PolicyRejected);
+
+        let err = policy
+            .assert_can_link(
+                fixtures::formal_work_ref(),
+                fixtures::downstream_formal_work_ref(),
+            )
+            .expect_err("cycle dependency must fail");
+        assert_eq!(err, DomainError::PolicyRejected);
+
+        let mut dependency = WorkDependency::link(
+            fixtures::work_dependency_id(),
+            fixtures::formal_work_ref(),
+            fixtures::downstream_formal_work_ref(),
+            fixtures::dependency_reason(),
+        )
+        .expect("link should succeed");
+        dependency
+            .activate(actor.clone(), fixtures::dependency_activated_reason())
+            .expect("activate should succeed");
+        dependency
+            .cancel(fixtures::dependency_cancelled_reason(), actor.clone())
+            .expect("cancel should succeed");
+
+        let err = dependency
+            .activate(actor, fixtures::dependency_activated_reason())
+            .expect_err("terminal dependency must not reopen");
+        assert_eq!(err, DomainError::InvalidStateTransition);
+    }
+
+    #[test]
+    fn blocker_state_transitions_follow_matrix() {
+        let actor = actor();
+        let mut blocker = WorkBlocker::open(
+            fixtures::work_blocker_id(),
+            fixtures::formal_work_ref(),
+            fixtures::blocker_cause_ref(),
+            actor.clone(),
+        )
+        .expect("open blocker should succeed");
+        assert_eq!(blocker.blocker_state, work_contracts::BlockerState::Open);
+        assert_eq!(blocker.resolved_evidence_ref, None);
+
+        blocker
+            .start_mitigation(
+                work_contracts::BlockerMitigationReason {
+                    reason_kind: work_contracts::BlockerMitigationReasonKind::PlanCreated,
+                    reason_ref: None,
+                },
+                actor.clone(),
+            )
+            .expect("open -> mitigating should succeed");
+        assert_eq!(
+            blocker.blocker_state,
+            work_contracts::BlockerState::Mitigating
+        );
+
+        blocker
+            .resolve(fixtures::blocker_resolution_evidence_ref(), actor.clone())
+            .expect("mitigating -> resolved should succeed");
+        assert_eq!(
+            blocker.blocker_state,
+            work_contracts::BlockerState::Resolved
+        );
+        assert_eq!(
+            blocker.resolved_evidence_ref,
+            Some(fixtures::blocker_resolution_evidence_ref())
+        );
+
+        blocker
+            .close(
+                work_contracts::BlockerCloseReason {
+                    reason_kind: work_contracts::BlockerCloseReasonKind::ResolvedVerified,
+                    reason_ref: None,
+                },
+                actor.clone(),
+            )
+            .expect("resolved -> closed should succeed");
+        assert_eq!(blocker.blocker_state, work_contracts::BlockerState::Closed);
+
+        let err = blocker
+            .resolve(fixtures::blocker_resolution_evidence_ref(), actor)
+            .expect_err("closed blocker must not resolve again");
+        assert_eq!(err, DomainError::InvalidStateTransition);
+    }
+
+    #[test]
+    fn blocker_resolution_and_change_history_reject_invalid_inputs() {
+        let actor = actor();
+        let mut blocker = WorkBlocker::open(
+            fixtures::work_blocker_id(),
+            fixtures::formal_work_ref(),
+            fixtures::blocker_cause_ref(),
+            actor.clone(),
+        )
+        .expect("open blocker should succeed");
+
+        let err = blocker
+            .resolve(
+                fixtures::unverified_blocker_resolution_evidence_ref(),
+                actor.clone(),
+            )
+            .expect_err("unverified blocker evidence must fail");
+        assert_eq!(err, DomainError::PolicyRejected);
+
+        let dependency = WorkDependency::link(
+            fixtures::work_dependency_id(),
+            fixtures::formal_work_ref(),
+            fixtures::downstream_formal_work_ref(),
+            fixtures::dependency_reason(),
+        )
+        .expect("link should succeed");
+        let history = DependencyChangeRecord::from_dependency_change(
+            DependencyChangeId("dep-change-1".to_owned()),
+            dependency,
+            work_contracts::DependencyChangeReason::from_link_reason(fixtures::dependency_reason()),
+        )
+        .expect("dependency change history should build");
+        assert_eq!(
+            history.relation_ref,
+            DependencyOrBlockerRef::Dependency(fixtures::work_dependency_ref())
+        );
+
+        let blocker_history = DependencyChangeRecord::from_blocker_change(
+            DependencyChangeId("dep-change-2".to_owned()),
+            blocker,
+            work_contracts::DependencyChangeReason::from_blocker_cause(
+                fixtures::blocker_cause_ref(),
+            ),
+        )
+        .expect("blocker change history should build");
+        assert_eq!(
+            blocker_history.relation_ref,
+            DependencyOrBlockerRef::Blocker(fixtures::work_blocker_ref())
+        );
+    }
+
+    #[test]
     fn domain_audit_outbox_records_follow_truth_change() {
         let trace = WorkTraceRecord::from_truth_change(
             fixtures::trace_id(),
@@ -635,6 +855,39 @@ mod tests {
             WorkOutboxEventKind::PromoteResultRecorded
         );
 
+        let relation_trace = WorkTraceRecord::from_truth_change(
+            fixtures::trace_id(),
+            fixtures::dependency_changed_change(),
+            fixtures::trace_context_ref(),
+        )
+        .expect("relation trace should succeed");
+        assert_eq!(
+            relation_trace.subject_ref,
+            WorkTraceSubjectRef::Relation(DependencyOrBlockerRef::Dependency(
+                fixtures::work_dependency_ref()
+            ))
+        );
+
+        let relation_outbox = WorkOutboxRecord::from_truth_change(
+            fixtures::outbox_id(),
+            fixtures::dependency_changed_change(),
+        )
+        .expect("relation outbox should succeed");
+        assert_eq!(
+            relation_outbox.event_kind,
+            WorkOutboxEventKind::WorkDependencyChanged
+        );
+
+        let blocker_outbox = WorkOutboxRecord::from_truth_change(
+            fixtures::outbox_id(),
+            fixtures::blocker_changed_change(),
+        )
+        .expect("blocker outbox should succeed");
+        assert_eq!(
+            blocker_outbox.event_kind,
+            WorkOutboxEventKind::WorkBlockerChanged
+        );
+
         let mut work_audit = WorkAuditTrail::start_for_subject(WorkAuditSubjectRef::FormalWork(
             fixtures::formal_work_ref(),
         ));
@@ -648,5 +901,12 @@ mod tests {
         promote_audit
             .append(promote_trace)
             .expect("promote audit append should succeed");
+
+        let mut relation_audit = WorkAuditTrail::start_for_subject(WorkAuditSubjectRef::Relation(
+            DependencyOrBlockerRef::Dependency(fixtures::work_dependency_ref()),
+        ));
+        relation_audit
+            .append(relation_trace)
+            .expect("relation audit append should succeed");
     }
 }

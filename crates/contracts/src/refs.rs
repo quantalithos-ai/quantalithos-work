@@ -25,6 +25,12 @@ string_newtype!(
 string_newtype!(BacklogId, "Identifies a Work-owned backlog.");
 string_newtype!(WorkItemId, "Identifies a formal root work item.");
 string_newtype!(ChildWorkItemId, "Identifies a formal child work item.");
+string_newtype!(WorkDependencyId, "Identifies a formal work dependency.");
+string_newtype!(WorkBlockerId, "Identifies a formal work blocker.");
+string_newtype!(
+    DependencyChangeId,
+    "Identifies a dependency or blocker change record."
+);
 string_newtype!(IterationId, "Identifies a Work-owned iteration.");
 string_newtype!(PromoteResultId, "Identifies a promote result.");
 string_newtype!(PromoteDecisionId, "Identifies a promote decision record.");
@@ -102,6 +108,20 @@ pub struct PromoteResultRef {
     pub promote_result_id: PromoteResultId,
 }
 
+/// References a formal work dependency.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub struct WorkDependencyRef {
+    /// Stable dependency id.
+    pub dependency_id: WorkDependencyId,
+}
+
+/// References a formal work blocker.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub struct WorkBlockerRef {
+    /// Stable blocker id.
+    pub blocker_id: WorkBlockerId,
+}
+
 /// References formal Work truth regardless of root or child shape.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum FormalWorkRef {
@@ -152,6 +172,35 @@ impl DerivedWorkViewRef {
             scope_ref: DerivedWorkViewScopeRef::ProjectMember(project_member_ref),
         }
     }
+}
+
+/// Reference to either a dependency or a blocker.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub enum DependencyOrBlockerRef {
+    /// Dependency reference.
+    Dependency(WorkDependencyRef),
+    /// Blocker reference.
+    Blocker(WorkBlockerRef),
+}
+
+/// Safe blocker cause reference.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct BlockerCauseRef {
+    /// External source carrying the cause.
+    pub source_ref: ExternalSourceRef,
+    /// Optional evidence ref for the cause.
+    pub evidence_ref: Option<ExternalEvidenceRef>,
+}
+
+/// Read-only blocker impact explanation.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct BlockerImpactExplanation {
+    /// Blocker reference.
+    pub blocker_ref: WorkBlockerRef,
+    /// Work affected by the blocker.
+    pub affected_work_ref: FormalWorkRef,
+    /// Safe summary text.
+    pub summary: SafeSummaryText,
 }
 
 /// Opaque pointer to an external source boundary.
@@ -331,6 +380,20 @@ pub enum PromoteReviewDecision {
     Reject(PromoteRejectReason),
 }
 
+/// Target state requested for a dependency.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DependencyTarget {
+    /// Activate a proposed dependency.
+    Active,
+    /// Mark the dependency satisfied.
+    Satisfied,
+    /// Waive the dependency.
+    Waived,
+    /// Cancel the dependency.
+    Cancelled,
+}
+
 /// Target lifecycle state requested for a Work project.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -441,6 +504,64 @@ pub struct PromoteRejectReason {
     pub reason_ref: Option<ExternalEvidenceRef>,
 }
 
+/// Reason supplied when a dependency is linked.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DependencyReason {
+    /// Reason category.
+    pub reason_kind: DependencyReasonKind,
+    /// Optional external evidence or decision reference.
+    pub reason_ref: Option<ExternalEvidenceRef>,
+}
+
+/// Reason supplied when a dependency changes.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DependencyChangeReason {
+    /// Reason category.
+    pub reason_kind: DependencyChangeReasonKind,
+    /// Optional external evidence or decision reference.
+    pub reason_ref: Option<ExternalEvidenceRef>,
+    /// Optional blocker cause that produced this dependency change.
+    pub blocker_cause_ref: Option<BlockerCauseRef>,
+}
+
+impl DependencyChangeReason {
+    /// Builds the activation change reason derived from an accepted link reason.
+    pub fn from_link_reason(reason: DependencyReason) -> Self {
+        Self {
+            reason_kind: DependencyChangeReasonKind::Activated,
+            reason_ref: reason.reason_ref,
+            blocker_cause_ref: None,
+        }
+    }
+
+    /// Builds a blocker-derived change reason without persisting external body content.
+    pub fn from_blocker_cause(cause_ref: BlockerCauseRef) -> Self {
+        Self {
+            reason_kind: DependencyChangeReasonKind::FromBlockerCause,
+            reason_ref: None,
+            blocker_cause_ref: Some(cause_ref),
+        }
+    }
+}
+
+/// Reason supplied when blocker mitigation starts.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct BlockerMitigationReason {
+    /// Reason category.
+    pub reason_kind: BlockerMitigationReasonKind,
+    /// Optional external evidence or decision reference.
+    pub reason_ref: Option<ExternalEvidenceRef>,
+}
+
+/// Reason supplied when a blocker record is closed.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct BlockerCloseReason {
+    /// Reason category.
+    pub reason_kind: BlockerCloseReasonKind,
+    /// Optional external evidence or decision reference.
+    pub reason_ref: Option<ExternalEvidenceRef>,
+}
+
 /// Backlog availability explanation category.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -493,6 +614,60 @@ pub enum PromoteRejectReasonKind {
     InsufficientEvidence,
     /// Policy rejected the promotion.
     PolicyRejected,
+}
+
+/// Dependency creation category.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DependencyReasonKind {
+    /// Dependency expresses explicit ordering between formal work.
+    ExplicitOrdering,
+    /// Dependency requires evidence or artifact completion first.
+    EvidencePrerequisite,
+    /// Dependency follows governance requirement.
+    GovernanceRequirement,
+    /// Dependency was created from manual review.
+    ManualReview,
+}
+
+/// Dependency change category.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DependencyChangeReasonKind {
+    /// Proposed dependency was activated.
+    Activated,
+    /// Active dependency was satisfied by verified evidence.
+    SatisfiedByEvidence,
+    /// Active dependency was explicitly waived.
+    Waived,
+    /// Dependency was cancelled.
+    Cancelled,
+    /// Change history was derived from blocker cause.
+    FromBlockerCause,
+}
+
+/// Blocker mitigation category.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BlockerMitigationReasonKind {
+    /// A mitigation plan was created.
+    PlanCreated,
+    /// Work owner took mitigation action.
+    OwnerAction,
+    /// Mitigation depends on an external dependency.
+    ExternalDependency,
+}
+
+/// Blocker close category.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BlockerCloseReasonKind {
+    /// Blocker was resolved with verified evidence.
+    ResolvedVerified,
+    /// Blocker no longer applies.
+    NoLongerApplies,
+    /// Blocker was superseded by later truth.
+    Superseded,
 }
 
 /// Work outbox event category derived from a truth change.
@@ -562,6 +737,8 @@ pub enum WorkTraceSubjectRef {
     FormalWork(FormalWorkRef),
     /// Promote result subject.
     PromoteResult(PromoteResultRef),
+    /// Dependency or blocker subject.
+    Relation(DependencyOrBlockerRef),
     /// Trace or archive handoff subject.
     Handoff(TraceHandoffRef),
 }
@@ -579,6 +756,8 @@ pub enum WorkAuditSubjectRef {
     FormalWork(FormalWorkRef),
     /// Promote result audit subject.
     PromoteResult(PromoteResultRef),
+    /// Dependency or blocker audit subject.
+    Relation(DependencyOrBlockerRef),
 }
 
 /// Set of trace records linked from an audit trail.
@@ -603,6 +782,8 @@ pub enum WorkTruthChange {
     WorkItemChanged(FormalWorkRef),
     /// A promote result was recorded.
     PromoteResultRecorded(PromoteResultRef),
+    /// A dependency or blocker changed.
+    WorkRelationChanged(DependencyOrBlockerRef),
 }
 
 impl WorkTruthChange {
@@ -621,6 +802,9 @@ impl WorkTruthChange {
             Self::WorkItemChanged(work_ref) => WorkTraceSubjectRef::FormalWork(work_ref.clone()),
             Self::PromoteResultRecorded(promote_result_ref) => {
                 WorkTraceSubjectRef::PromoteResult(promote_result_ref.clone())
+            }
+            Self::WorkRelationChanged(relation_ref) => {
+                WorkTraceSubjectRef::Relation(relation_ref.clone())
             }
         }
     }
@@ -641,6 +825,9 @@ impl WorkTruthChange {
             Self::PromoteResultRecorded(promote_result_ref) => {
                 WorkAuditSubjectRef::PromoteResult(promote_result_ref.clone())
             }
+            Self::WorkRelationChanged(relation_ref) => {
+                WorkAuditSubjectRef::Relation(relation_ref.clone())
+            }
         }
     }
 
@@ -654,6 +841,12 @@ impl WorkTruthChange {
             Self::BacklogAvailabilityChanged(_) => WorkOutboxEventKind::BacklogChanged,
             Self::WorkItemChanged(_) => WorkOutboxEventKind::WorkItemChanged,
             Self::PromoteResultRecorded(_) => WorkOutboxEventKind::PromoteResultRecorded,
+            Self::WorkRelationChanged(DependencyOrBlockerRef::Dependency(_)) => {
+                WorkOutboxEventKind::WorkDependencyChanged
+            }
+            Self::WorkRelationChanged(DependencyOrBlockerRef::Blocker(_)) => {
+                WorkOutboxEventKind::WorkBlockerChanged
+            }
         }
     }
 }

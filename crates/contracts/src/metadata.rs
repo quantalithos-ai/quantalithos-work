@@ -12,16 +12,18 @@ use crate::{
     commands::{ProjectResponsibilitySpec, ProjectSpec},
     handoff::{ApplicationResultRef, WorkTraceContextRef},
     refs::{
-        BacklogId, BacklogRef, CapabilityRef, CapabilityRefSet, ChildWorkItemId, EvidenceKind,
-        EvidenceVerifiedState, ExternalEvidenceRef, ExternalSourceRef, ExternalSourceSystem,
-        FormalWorkIntent, FormalWorkRef, GlobalMemberRef, IterationId, IterationRef,
-        MethodDefinitionRef, ProjectId, ProjectMemberId, ProjectMemberRef, ProjectOwnerKind,
-        ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind, PromoteReason, PromoteReasonKind,
-        PromoteRejectReason, PromoteRejectReasonKind, PromoteResultId, PromoteResultRef, ResultId,
-        SafeSummaryText, SourceDigest, SourceEventId, SourceWorkKind, SourceWorkRef,
-        TraceHandoffRef, WorkAuditSubjectRef, WorkAuditTrailId, WorkItemId, WorkLifecycleReason,
-        WorkLifecycleReasonKind, WorkOutboxId, WorkTitle, WorkTraceId, WorkTraceRecordRefSet,
-        WorkTraceSubjectRef, WorkTruthChange,
+        BacklogId, BacklogRef, BlockerCauseRef, CapabilityRef, CapabilityRefSet, ChildWorkItemId,
+        DependencyChangeReason, DependencyChangeReasonKind, DependencyOrBlockerRef,
+        DependencyReason, DependencyReasonKind, EvidenceKind, EvidenceVerifiedState,
+        ExternalEvidenceRef, ExternalSourceRef, ExternalSourceSystem, FormalWorkIntent,
+        FormalWorkRef, GlobalMemberRef, IterationId, IterationRef, MethodDefinitionRef, ProjectId,
+        ProjectMemberId, ProjectMemberRef, ProjectOwnerKind, ProjectOwnerRef, ProjectRef,
+        ProjectResponsibilityKind, PromoteReason, PromoteReasonKind, PromoteRejectReason,
+        PromoteRejectReasonKind, PromoteResultId, PromoteResultRef, ResultId, SafeSummaryText,
+        SourceDigest, SourceEventId, SourceWorkKind, SourceWorkRef, TraceHandoffRef,
+        WorkAuditSubjectRef, WorkAuditTrailId, WorkBlockerId, WorkBlockerRef, WorkDependencyId,
+        WorkDependencyRef, WorkItemId, WorkLifecycleReason, WorkLifecycleReasonKind, WorkOutboxId,
+        WorkTitle, WorkTraceId, WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange,
     },
 };
 
@@ -161,6 +163,35 @@ pub mod fixtures {
         FormalWorkRef::ChildWorkItem(child_work_item_id())
     }
 
+    /// Returns a deterministic work dependency id.
+    pub fn work_dependency_id() -> WorkDependencyId {
+        WorkDependencyId("dependency-1".to_owned())
+    }
+
+    /// Returns a deterministic work dependency ref.
+    pub fn work_dependency_ref() -> WorkDependencyRef {
+        WorkDependencyRef {
+            dependency_id: work_dependency_id(),
+        }
+    }
+
+    /// Returns a deterministic second formal work ref for dependency tests.
+    pub fn downstream_formal_work_ref() -> FormalWorkRef {
+        FormalWorkRef::ChildWorkItem(ChildWorkItemId("child-work-item-2".to_owned()))
+    }
+
+    /// Returns a deterministic work blocker id.
+    pub fn work_blocker_id() -> WorkBlockerId {
+        WorkBlockerId("blocker-1".to_owned())
+    }
+
+    /// Returns a deterministic work blocker ref.
+    pub fn work_blocker_ref() -> WorkBlockerRef {
+        WorkBlockerRef {
+            blocker_id: work_blocker_id(),
+        }
+    }
+
     /// Returns a deterministic iteration ref.
     pub fn iteration_ref() -> IterationRef {
         IterationRef {
@@ -209,6 +240,24 @@ pub mod fixtures {
     pub fn unverified_completion_evidence_ref() -> ExternalEvidenceRef {
         ExternalEvidenceRef {
             evidence_kind: EvidenceKind::Completion,
+            external_ref: external_source_ref(),
+            verified_state: EvidenceVerifiedState::Unverified,
+        }
+    }
+
+    /// Returns deterministic blocker resolution evidence.
+    pub fn blocker_resolution_evidence_ref() -> ExternalEvidenceRef {
+        ExternalEvidenceRef {
+            evidence_kind: EvidenceKind::BlockerResolution,
+            external_ref: external_source_ref(),
+            verified_state: EvidenceVerifiedState::Verified,
+        }
+    }
+
+    /// Returns deterministic unverified blocker resolution evidence.
+    pub fn unverified_blocker_resolution_evidence_ref() -> ExternalEvidenceRef {
+        ExternalEvidenceRef {
+            evidence_kind: EvidenceKind::BlockerResolution,
             external_ref: external_source_ref(),
             verified_state: EvidenceVerifiedState::Unverified,
         }
@@ -326,6 +375,67 @@ pub mod fixtures {
         }
     }
 
+    /// Returns a deterministic dependency link reason.
+    pub fn dependency_reason() -> DependencyReason {
+        DependencyReason {
+            reason_kind: DependencyReasonKind::ExplicitOrdering,
+            reason_ref: None,
+        }
+    }
+
+    /// Returns an activation reason for dependency state transitions.
+    pub fn dependency_activated_reason() -> DependencyChangeReason {
+        DependencyChangeReason {
+            reason_kind: DependencyChangeReasonKind::Activated,
+            reason_ref: None,
+            blocker_cause_ref: None,
+        }
+    }
+
+    /// Returns a satisfied reason for dependency state transitions.
+    pub fn dependency_satisfied_reason() -> DependencyChangeReason {
+        DependencyChangeReason {
+            reason_kind: DependencyChangeReasonKind::SatisfiedByEvidence,
+            reason_ref: Some(completion_evidence_ref()),
+            blocker_cause_ref: None,
+        }
+    }
+
+    /// Returns a waived reason for dependency state transitions.
+    pub fn dependency_waived_reason() -> DependencyChangeReason {
+        DependencyChangeReason {
+            reason_kind: DependencyChangeReasonKind::Waived,
+            reason_ref: None,
+            blocker_cause_ref: None,
+        }
+    }
+
+    /// Returns a cancelled reason for dependency state transitions.
+    pub fn dependency_cancelled_reason() -> DependencyChangeReason {
+        DependencyChangeReason {
+            reason_kind: DependencyChangeReasonKind::Cancelled,
+            reason_ref: None,
+            blocker_cause_ref: None,
+        }
+    }
+
+    /// Returns a mismatched dependency change reason for negative tests.
+    pub fn dependency_mismatched_reason() -> DependencyChangeReason {
+        DependencyChangeReason {
+            reason_kind: DependencyChangeReasonKind::Waived,
+            reason_ref: None,
+            blocker_cause_ref: None,
+        }
+    }
+
+    /// Returns a deterministic blocker cause ref.
+    pub fn blocker_cause_ref() -> BlockerCauseRef {
+        BlockerCauseRef {
+            source_ref: external_source_ref(),
+            evidence_ref: Some(blocker_resolution_evidence_ref()),
+        }
+    }
+
     /// Returns a deterministic source event id.
     pub fn source_event_id() -> SourceEventId {
         SourceEventId("source-event-1".to_owned())
@@ -371,6 +481,18 @@ pub mod fixtures {
     /// Returns a deterministic promote-result change.
     pub fn promote_result_recorded_change() -> WorkTruthChange {
         WorkTruthChange::PromoteResultRecorded(promote_result_ref())
+    }
+
+    /// Returns a deterministic dependency change.
+    pub fn dependency_changed_change() -> WorkTruthChange {
+        WorkTruthChange::WorkRelationChanged(DependencyOrBlockerRef::Dependency(
+            work_dependency_ref(),
+        ))
+    }
+
+    /// Returns a deterministic blocker change.
+    pub fn blocker_changed_change() -> WorkTruthChange {
+        WorkTruthChange::WorkRelationChanged(DependencyOrBlockerRef::Blocker(work_blocker_ref()))
     }
 
     /// Returns a deterministic trace context ref.

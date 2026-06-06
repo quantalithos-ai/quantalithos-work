@@ -8,39 +8,46 @@ pub mod refs;
 pub mod states;
 
 pub use commands::{
-    AssignProjectMemberRequest, BacklogCommandResult, CreateChildWorkItemRequest,
-    CreateProjectRequest, CreateWorkItemRequest, IdempotencyResultView, ProjectCommandResult,
-    ProjectMemberCommandResult, ProjectResponsibilitySpec, ProjectSpec, PromoteCommandResult,
-    RequestWorkPromotionRequest, ReviewWorkPromotionRequest, UpdateBacklogAvailabilityRequest,
+    AssignProjectMemberRequest, BacklogCommandResult, BlockerCommandResult,
+    CreateChildWorkItemRequest, CreateProjectRequest, CreateWorkItemRequest,
+    DependencyCommandResult, IdempotencyResultView, LinkWorkDependencyRequest,
+    OpenWorkBlockerRequest, ProjectCommandResult, ProjectMemberCommandResult,
+    ProjectResponsibilitySpec, ProjectSpec, PromoteCommandResult, RequestWorkPromotionRequest,
+    ResolveWorkBlockerRequest, ReviewWorkPromotionRequest, UpdateBacklogAvailabilityRequest,
     UpdateProjectLifecycleRequest, UpdateProjectMemberResponsibilityRequest,
-    UpdateWorkItemLifecycleRequest, WorkCommandEnvelope, WorkItemCommandResult,
+    UpdateWorkDependencyStateRequest, UpdateWorkItemLifecycleRequest, WorkCommandEnvelope,
+    WorkItemCommandResult,
 };
 pub use errors::WorkProtocolError;
 pub use handoff::{ApplicationResultRef, WorkCommandReceipt, WorkTraceContextRef};
 pub use metadata::fixtures;
 pub use refs::{
     ArchiveHandoffRef, BacklogId, BacklogMaintenanceReason, BacklogMaintenanceReasonKind,
-    BacklogRef, CapabilityRef, CapabilityRefSet, ChildWorkItemId, DerivedWorkViewKind,
-    DerivedWorkViewRef, DerivedWorkViewScopeRef, EvidenceKind, EvidenceVerifiedState,
-    ExternalEvidenceRef, ExternalSourceRef, ExternalSourceSummary, ExternalSourceSystem,
-    FormalWorkCandidateSummary, FormalWorkIntent, FormalWorkRef, GlobalMemberRef, IterationId,
-    IterationRef, MethodDefinitionKind, MethodDefinitionRef, OutboxFailureReason,
-    OutboxFailureReasonKind, OutboxPublicationRef, OutboxRetryReason, ProjectId,
-    ProjectLifecycleReason, ProjectLifecycleReasonKind, ProjectLifecycleTarget, ProjectMemberId,
-    ProjectMemberReason, ProjectMemberReasonKind, ProjectMemberRef, ProjectOwnerKind,
-    ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind, PromoteDecision, PromoteDecisionId,
-    PromoteReason, PromoteReasonKind, PromoteRejectReason, PromoteRejectReasonKind,
-    PromoteResultId, PromoteResultRef, PromoteReviewDecision, ResponsibilityTarget, ResultId,
-    SafeSummaryText, SourceDigest, SourceEventId, SourceWorkKind, SourceWorkRef,
-    TraceHandoffIntent, TraceHandoffRef, TraceHandoffTargetKind, TraceHandoffTargetRef,
-    WorkAuditSubjectRef, WorkAuditTrailId, WorkItemId, WorkLifecycleReason,
-    WorkLifecycleReasonKind, WorkLifecycleTarget, WorkOutboxEventKind, WorkOutboxId,
-    WorkPolicyScope, WorkTitle, WorkTraceId, WorkTraceRecordRefSet, WorkTraceSubjectRef,
-    WorkTruthChange, WorkTruthCursor, WorkTruthSnapshot,
+    BacklogRef, BlockerCauseRef, BlockerCloseReason, BlockerCloseReasonKind,
+    BlockerImpactExplanation, BlockerMitigationReason, BlockerMitigationReasonKind, CapabilityRef,
+    CapabilityRefSet, ChildWorkItemId, DependencyChangeId, DependencyChangeReason,
+    DependencyChangeReasonKind, DependencyOrBlockerRef, DependencyReason, DependencyReasonKind,
+    DependencyTarget, DerivedWorkViewKind, DerivedWorkViewRef, DerivedWorkViewScopeRef,
+    EvidenceKind, EvidenceVerifiedState, ExternalEvidenceRef, ExternalSourceRef,
+    ExternalSourceSummary, ExternalSourceSystem, FormalWorkCandidateSummary, FormalWorkIntent,
+    FormalWorkRef, GlobalMemberRef, IterationId, IterationRef, MethodDefinitionKind,
+    MethodDefinitionRef, OutboxFailureReason, OutboxFailureReasonKind, OutboxPublicationRef,
+    OutboxRetryReason, ProjectId, ProjectLifecycleReason, ProjectLifecycleReasonKind,
+    ProjectLifecycleTarget, ProjectMemberId, ProjectMemberReason, ProjectMemberReasonKind,
+    ProjectMemberRef, ProjectOwnerKind, ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind,
+    PromoteDecision, PromoteDecisionId, PromoteReason, PromoteReasonKind, PromoteRejectReason,
+    PromoteRejectReasonKind, PromoteResultId, PromoteResultRef, PromoteReviewDecision,
+    ResponsibilityTarget, ResultId, SafeSummaryText, SourceDigest, SourceEventId, SourceWorkKind,
+    SourceWorkRef, TraceHandoffIntent, TraceHandoffRef, TraceHandoffTargetKind,
+    TraceHandoffTargetRef, WorkAuditSubjectRef, WorkAuditTrailId, WorkBlockerId, WorkBlockerRef,
+    WorkDependencyId, WorkDependencyRef, WorkItemId, WorkLifecycleReason, WorkLifecycleReasonKind,
+    WorkLifecycleTarget, WorkOutboxEventKind, WorkOutboxId, WorkPolicyScope, WorkTitle,
+    WorkTraceId, WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange, WorkTruthCursor,
+    WorkTruthSnapshot,
 };
 pub use states::{
-    BacklogAvailabilityTarget, BacklogState, OutboxPublicationState, ProjectLifecycleState,
-    ProjectMemberResponsibilityState, PromoteResultState, WorkItemState,
+    BacklogAvailabilityTarget, BacklogState, BlockerState, DependencyState, OutboxPublicationState,
+    ProjectLifecycleState, ProjectMemberResponsibilityState, PromoteResultState, WorkItemState,
 };
 
 #[cfg(test)]
@@ -49,24 +56,28 @@ mod tests {
     use serde::de::DeserializeOwned;
 
     use super::commands::{
-        AssignProjectMemberRequest, BacklogCommandResult, CreateChildWorkItemRequest,
-        CreateProjectRequest, CreateWorkItemRequest, IdempotencyResultView, ProjectCommandResult,
-        ProjectMemberCommandResult, PromoteCommandResult, RequestWorkPromotionRequest,
+        AssignProjectMemberRequest, BacklogCommandResult, BlockerCommandResult,
+        CreateChildWorkItemRequest, CreateProjectRequest, CreateWorkItemRequest,
+        DependencyCommandResult, IdempotencyResultView, LinkWorkDependencyRequest,
+        OpenWorkBlockerRequest, ProjectCommandResult, ProjectMemberCommandResult,
+        PromoteCommandResult, RequestWorkPromotionRequest, ResolveWorkBlockerRequest,
         ReviewWorkPromotionRequest, UpdateBacklogAvailabilityRequest,
         UpdateProjectLifecycleRequest, UpdateProjectMemberResponsibilityRequest,
-        UpdateWorkItemLifecycleRequest, WorkCommandEnvelope, WorkItemCommandResult,
+        UpdateWorkDependencyStateRequest, UpdateWorkItemLifecycleRequest, WorkCommandEnvelope,
+        WorkItemCommandResult,
     };
     use super::handoff::{WorkCommandReceipt, WorkTraceContextRef};
     use super::metadata::fixtures;
     use super::refs::{
-        BacklogMaintenanceReason, BacklogMaintenanceReasonKind, ProjectLifecycleReason,
-        ProjectLifecycleReasonKind, ProjectLifecycleTarget, ProjectMemberReason,
-        ProjectMemberReasonKind, PromoteReviewDecision, ResponsibilityTarget, TraceHandoffIntent,
-        TraceHandoffTargetKind, TraceHandoffTargetRef, WorkTruthChange,
+        BacklogMaintenanceReason, BacklogMaintenanceReasonKind, DependencyOrBlockerRef,
+        DependencyTarget, ProjectLifecycleReason, ProjectLifecycleReasonKind,
+        ProjectLifecycleTarget, ProjectMemberReason, ProjectMemberReasonKind,
+        PromoteReviewDecision, ResponsibilityTarget, TraceHandoffIntent, TraceHandoffTargetKind,
+        TraceHandoffTargetRef, WorkLifecycleTarget, WorkTruthChange,
     };
     use super::states::{
-        BacklogAvailabilityTarget, BacklogState, ProjectLifecycleState,
-        ProjectMemberResponsibilityState, PromoteResultState, WorkItemState,
+        BacklogAvailabilityTarget, BacklogState, BlockerState, DependencyState,
+        ProjectLifecycleState, ProjectMemberResponsibilityState, PromoteResultState, WorkItemState,
     };
 
     fn roundtrip<T>(value: &T)
@@ -144,6 +155,27 @@ mod tests {
             accepted_work_intent: None,
             expected_version: 2,
         });
+        roundtrip(&LinkWorkDependencyRequest {
+            upstream_work_ref: fixtures::formal_work_ref(),
+            downstream_work_ref: fixtures::downstream_formal_work_ref(),
+            reason: fixtures::dependency_reason(),
+        });
+        roundtrip(&UpdateWorkDependencyStateRequest {
+            dependency_ref: fixtures::work_dependency_ref(),
+            target: DependencyTarget::Active,
+            reason: fixtures::dependency_activated_reason(),
+            evidence_ref: None,
+            expected_version: 5,
+        });
+        roundtrip(&OpenWorkBlockerRequest {
+            blocked_work_ref: fixtures::formal_work_ref(),
+            cause_ref: fixtures::blocker_cause_ref(),
+        });
+        roundtrip(&ResolveWorkBlockerRequest {
+            blocker_ref: fixtures::work_blocker_ref(),
+            evidence_ref: fixtures::blocker_resolution_evidence_ref(),
+            expected_version: 6,
+        });
     }
 
     #[test]
@@ -209,6 +241,28 @@ mod tests {
                 applied_version: Some(1),
             },
         });
+        roundtrip(&DependencyCommandResult {
+            dependency_ref: fixtures::work_dependency_ref(),
+            dependency_state: DependencyState::Active,
+            receipt: WorkCommandReceipt {
+                result_ref: fixtures::application_result_ref("link_work_dependency", "result-5"),
+                idempotency: IdempotencyResultView::Applied,
+                trace_ref: Some(fixtures::trace_id()),
+                outbox_record_refs: vec![fixtures::outbox_id()],
+                applied_version: Some(1),
+            },
+        });
+        roundtrip(&BlockerCommandResult {
+            blocker_ref: fixtures::work_blocker_ref(),
+            blocker_state: BlockerState::Open,
+            receipt: WorkCommandReceipt {
+                result_ref: fixtures::application_result_ref("open_work_blocker", "result-6"),
+                idempotency: IdempotencyResultView::Applied,
+                trace_ref: Some(fixtures::trace_id()),
+                outbox_record_refs: vec![fixtures::outbox_id()],
+                applied_version: Some(1),
+            },
+        });
     }
 
     #[test]
@@ -234,6 +288,12 @@ mod tests {
         ));
         roundtrip(&WorkTruthChange::PromoteResultRecorded(
             fixtures::promote_result_ref(),
+        ));
+        roundtrip(&WorkTruthChange::WorkRelationChanged(
+            DependencyOrBlockerRef::Dependency(fixtures::work_dependency_ref()),
+        ));
+        roundtrip(&WorkTruthChange::WorkRelationChanged(
+            DependencyOrBlockerRef::Blocker(fixtures::work_blocker_ref()),
         ));
         roundtrip(&WorkTraceContextRef::from_metadata(
             &fixtures::request_metadata(None),

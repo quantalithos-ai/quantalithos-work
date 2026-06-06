@@ -74,6 +74,36 @@ pub enum PromoteResultState {
     Superseded,
 }
 
+/// Lifecycle state for a formal work dependency.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DependencyState {
+    /// The dependency is proposed but not yet active.
+    Proposed,
+    /// The dependency is active.
+    Active,
+    /// The dependency was satisfied by evidence.
+    Satisfied,
+    /// The dependency was explicitly waived.
+    Waived,
+    /// The dependency was cancelled.
+    Cancelled,
+}
+
+/// Lifecycle state for a formal work blocker.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BlockerState {
+    /// The blocker is open.
+    Open,
+    /// Mitigation is in progress.
+    Mitigating,
+    /// The blocker was resolved by evidence.
+    Resolved,
+    /// The blocker record is closed.
+    Closed,
+}
+
 /// Target availability state requested for a backlog.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

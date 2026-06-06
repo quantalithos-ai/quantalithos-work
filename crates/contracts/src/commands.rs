@@ -6,14 +6,16 @@ use core_contracts::{actor::ActorContext, metadata::CommandMetadata};
 
 use crate::handoff::WorkCommandReceipt;
 use crate::refs::{
-    BacklogMaintenanceReason, BacklogRef, CapabilityRefSet, ExternalEvidenceRef, FormalWorkIntent,
-    FormalWorkRef, GlobalMemberRef, ProjectLifecycleReason, ProjectLifecycleTarget,
-    ProjectMemberReason, ProjectMemberRef, ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind,
-    PromoteReason, PromoteResultRef, PromoteReviewDecision, ResponsibilityTarget, SourceWorkRef,
-    WorkLifecycleReason, WorkLifecycleTarget,
+    BacklogMaintenanceReason, BacklogRef, BlockerCauseRef, CapabilityRefSet,
+    DependencyChangeReason, DependencyReason, DependencyTarget, ExternalEvidenceRef,
+    FormalWorkIntent, FormalWorkRef, GlobalMemberRef, ProjectLifecycleReason,
+    ProjectLifecycleTarget, ProjectMemberReason, ProjectMemberRef, ProjectOwnerRef, ProjectRef,
+    ProjectResponsibilityKind, PromoteReason, PromoteResultRef, PromoteReviewDecision,
+    ResponsibilityTarget, SourceWorkRef, WorkBlockerRef, WorkDependencyRef, WorkLifecycleReason,
+    WorkLifecycleTarget,
 };
 use crate::states::{
-    BacklogAvailabilityTarget, BacklogState, ProjectLifecycleState,
+    BacklogAvailabilityTarget, BacklogState, BlockerState, DependencyState, ProjectLifecycleState,
     ProjectMemberResponsibilityState, PromoteResultState, WorkItemState,
 };
 
@@ -162,6 +164,52 @@ pub struct ReviewWorkPromotionRequest {
     pub expected_version: core_contracts::metadata::Version,
 }
 
+/// Requests creation of a dependency between formal work records.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct LinkWorkDependencyRequest {
+    /// Work that must happen first.
+    pub upstream_work_ref: FormalWorkRef,
+    /// Work affected by the dependency.
+    pub downstream_work_ref: FormalWorkRef,
+    /// Reason for linking.
+    pub reason: DependencyReason,
+}
+
+/// Requests a dependency state transition.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct UpdateWorkDependencyStateRequest {
+    /// Dependency to update.
+    pub dependency_ref: WorkDependencyRef,
+    /// Target dependency state.
+    pub target: DependencyTarget,
+    /// Reason for the state change.
+    pub reason: DependencyChangeReason,
+    /// Evidence when required by target.
+    pub evidence_ref: Option<ExternalEvidenceRef>,
+    /// Expected dependency version.
+    pub expected_version: core_contracts::metadata::Version,
+}
+
+/// Requests opening a work blocker.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct OpenWorkBlockerRequest {
+    /// Formal work blocked by this record.
+    pub blocked_work_ref: FormalWorkRef,
+    /// Cause reference.
+    pub cause_ref: BlockerCauseRef,
+}
+
+/// Requests blocker resolution.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ResolveWorkBlockerRequest {
+    /// Blocker to resolve.
+    pub blocker_ref: WorkBlockerRef,
+    /// Evidence used for resolution.
+    pub evidence_ref: ExternalEvidenceRef,
+    /// Expected blocker version.
+    pub expected_version: core_contracts::metadata::Version,
+}
+
 /// Idempotency result visible to command and job callers.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -266,6 +314,46 @@ pub struct PromoteCommandResult {
 }
 
 impl PromoteCommandResult {
+    /// Returns a duplicate replay view while preserving the stored result surface.
+    pub fn with_duplicate_receipt(&self) -> Self {
+        let mut result = self.clone();
+        result.receipt = result.receipt.with_duplicate_overlay();
+        result
+    }
+}
+
+/// Result returned by dependency commands.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DependencyCommandResult {
+    /// Changed dependency reference.
+    pub dependency_ref: WorkDependencyRef,
+    /// Current dependency state.
+    pub dependency_state: DependencyState,
+    /// Shared write receipt.
+    pub receipt: WorkCommandReceipt,
+}
+
+impl DependencyCommandResult {
+    /// Returns a duplicate replay view while preserving the stored result surface.
+    pub fn with_duplicate_receipt(&self) -> Self {
+        let mut result = self.clone();
+        result.receipt = result.receipt.with_duplicate_overlay();
+        result
+    }
+}
+
+/// Result returned by blocker commands.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct BlockerCommandResult {
+    /// Changed blocker reference.
+    pub blocker_ref: WorkBlockerRef,
+    /// Current blocker state.
+    pub blocker_state: BlockerState,
+    /// Shared write receipt.
+    pub receipt: WorkCommandReceipt,
+}
+
+impl BlockerCommandResult {
     /// Returns a duplicate replay view while preserving the stored result surface.
     pub fn with_duplicate_receipt(&self) -> Self {
         let mut result = self.clone();
