@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use crate::{RepositoryError, UnitOfWorkHandle};
 use work_contracts::{
     ApplicationResultRef, BacklogCommandResult, ProjectCommandResult, ProjectMemberCommandResult,
-    WorkItemCommandResult,
+    PromoteCommandResult, WorkItemCommandResult,
 };
 
 /// Stores public command result surfaces for idempotency duplicate replay.
@@ -37,6 +37,8 @@ pub enum StoredCommandResult {
     ProjectMember(ProjectMemberCommandResult),
     /// Stored result for WorkItem command operations.
     WorkItem(WorkItemCommandResult),
+    /// Stored result for Promote command operations.
+    Promote(PromoteCommandResult),
 }
 
 impl StoredCommandResult {
@@ -86,6 +88,19 @@ impl StoredCommandResult {
     ) -> Option<WorkItemCommandResult> {
         match self {
             Self::WorkItem(result) if result.receipt.result_ref.operation == *operation => {
+                Some(result)
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns the stored promote result when the operation expects it.
+    pub fn into_promote_result(
+        self,
+        operation: &core_contracts::metadata::OperationName,
+    ) -> Option<PromoteCommandResult> {
+        match self {
+            Self::Promote(result) if result.receipt.result_ref.operation == *operation => {
                 Some(result)
             }
             _ => None,

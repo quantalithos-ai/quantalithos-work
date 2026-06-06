@@ -1,33 +1,43 @@
 //! API entrypoints for the Work bounded context.
 
 use work_application::{
-    ApplicationError, ProjectCommandService, ProjectMemberCommandService, WorkItemCommandService,
+    ApplicationError, ProjectCommandService, ProjectMemberCommandService, PromoteCommandService,
+    WorkItemCommandService,
 };
 use work_contracts::{
     AssignProjectMemberRequest, BacklogCommandResult, CreateChildWorkItemRequest,
     CreateProjectRequest, CreateWorkItemRequest, ProjectCommandResult, ProjectMemberCommandResult,
+    PromoteCommandResult, RequestWorkPromotionRequest, ReviewWorkPromotionRequest,
     UpdateBacklogAvailabilityRequest, UpdateProjectLifecycleRequest,
     UpdateProjectMemberResponsibilityRequest, UpdateWorkItemLifecycleRequest, WorkCommandEnvelope,
     WorkItemCommandResult, WorkProtocolError,
 };
 
 /// Thin command handlers that validate protocol shape and delegate to application services.
-pub struct WorkCommandHandlers<P, M, W> {
+pub struct WorkCommandHandlers<P, M, W, PR> {
     /// Project-scoped command service.
     pub project_service: P,
     /// Project-member command service.
     pub member_service: M,
     /// Formal work command service.
     pub workitem_service: W,
+    /// Promote command service.
+    pub promote_service: PR,
 }
 
-impl<P, M, W> WorkCommandHandlers<P, M, W> {
+impl<P, M, W, PR> WorkCommandHandlers<P, M, W, PR> {
     /// Creates a handler set for command delegation.
-    pub fn new(project_service: P, member_service: M, workitem_service: W) -> Self {
+    pub fn new(
+        project_service: P,
+        member_service: M,
+        workitem_service: W,
+        promote_service: PR,
+    ) -> Self {
         Self {
             project_service,
             member_service,
             workitem_service,
+            promote_service,
         }
     }
 }
@@ -69,11 +79,25 @@ impl<
     WI,
     WC,
     WIDEM,
+    PP,
+    PB,
+    PW,
+    PPR,
+    PA,
+    PO,
+    PRR,
+    PPROJ,
+    PU,
+    PS,
+    PI,
+    PCC,
+    PIDEM,
 >
     WorkCommandHandlers<
         ProjectCommandService<P, B, A, O, R, PR, U, I, C, IDEM>,
         ProjectMemberCommandService<MP, MPM, MRS, MA, MO, MR, MPR, MU, MM, MI, MC, MIDEM>,
         WorkItemCommandService<WP, WB, WPM, WW, WA, WO, WR, WPR, WU, WS, WE, WI, WC, WIDEM>,
+        PromoteCommandService<PP, PB, PW, PPR, PA, PO, PRR, PPROJ, PU, PS, PI, PCC, PIDEM>,
     >
 where
     P: work_application::ProjectRepository,
@@ -112,6 +136,19 @@ where
     WI: work_application::IdGeneratorPort,
     WC: work_application::ClockPort,
     WIDEM: work_application::IdempotencyRepository,
+    PP: work_application::ProjectMemberRepository,
+    PB: work_application::BacklogRepository,
+    PW: work_application::WorkItemRepository,
+    PPR: work_application::PromoteRepository,
+    PA: work_application::AuditRepository,
+    PO: work_application::WorkOutboxRepository,
+    PRR: work_application::CommandResultRepository,
+    PPROJ: work_application::ProjectionRepository,
+    PU: work_application::UnitOfWork,
+    PS: work_application::SourceWorkResolverPort,
+    PI: work_application::IdGeneratorPort,
+    PCC: work_application::ClockPort,
+    PIDEM: work_application::IdempotencyRepository,
 {
     /// Handles `CreateProject`.
     pub async fn handle_create_project(
@@ -200,6 +237,28 @@ where
             .await
             .map_err(ApplicationError::into_protocol_error)
     }
+
+    /// Handles `RequestWorkPromotion`.
+    pub async fn handle_request_work_promotion(
+        &self,
+        envelope: WorkCommandEnvelope<RequestWorkPromotionRequest>,
+    ) -> Result<PromoteCommandResult, WorkProtocolError> {
+        self.promote_service
+            .request_promotion(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
+
+    /// Handles `ReviewWorkPromotion`.
+    pub async fn handle_review_work_promotion(
+        &self,
+        envelope: WorkCommandEnvelope<ReviewWorkPromotionRequest>,
+    ) -> Result<PromoteCommandResult, WorkProtocolError> {
+        self.promote_service
+            .review_promotion(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
 }
 
 #[cfg(test)]
@@ -209,18 +268,20 @@ mod tests {
     use super::WorkCommandHandlers;
     use work_application::{
         BacklogRepository, CommandResultRepository, ProjectCommandService,
-        ProjectMemberCommandService, WorkItemCommandService,
+        ProjectMemberCommandService, PromoteCommandService, WorkItemCommandService,
     };
     use work_contracts::metadata::fixtures;
     use work_contracts::{
         AssignProjectMemberRequest, BacklogAvailabilityTarget, BacklogState,
         CreateChildWorkItemRequest, CreateProjectRequest, CreateWorkItemRequest,
+        DerivedWorkViewRef,
         IdempotencyResultView, ProjectLifecycleReason, ProjectLifecycleReasonKind,
         ProjectLifecycleState, ProjectLifecycleTarget, ProjectMemberReason,
-        ProjectMemberReasonKind, ProjectMemberResponsibilityState, ResponsibilityTarget,
-        UpdateBacklogAvailabilityRequest, UpdateProjectLifecycleRequest,
-        UpdateProjectMemberResponsibilityRequest, UpdateWorkItemLifecycleRequest,
-        WorkCommandEnvelope, WorkItemState, WorkProtocolError,
+        ProjectMemberReasonKind, ProjectMemberResponsibilityState, PromoteResultState,
+        PromoteReviewDecision, RequestWorkPromotionRequest, ResponsibilityTarget,
+        ReviewWorkPromotionRequest, UpdateBacklogAvailabilityRequest,
+        UpdateProjectLifecycleRequest, UpdateProjectMemberResponsibilityRequest,
+        UpdateWorkItemLifecycleRequest, WorkCommandEnvelope, WorkItemState, WorkProtocolError,
     };
     use work_infra::clock_id::{DeterministicWorkIdGenerator, FixedClock};
     use work_infra::command_result_store::InMemoryCommandResultRepository;
@@ -271,6 +332,21 @@ mod tests {
             InMemoryWorkStores,
             FakeSourceWorkResolverPort,
             FakeEvidenceResolverPort,
+            DeterministicWorkIdGenerator,
+            FixedClock,
+            InMemoryIdempotencyRepository,
+        >,
+        PromoteCommandService<
+            InMemoryWorkStores,
+            InMemoryWorkStores,
+            InMemoryWorkStores,
+            InMemoryWorkStores,
+            InMemoryWorkStores,
+            InMemoryWorkOutboxRepository,
+            InMemoryCommandResultRepository,
+            InMemoryWorkStores,
+            InMemoryWorkStores,
+            FakeSourceWorkResolverPort,
             DeterministicWorkIdGenerator,
             FixedClock,
             InMemoryIdempotencyRepository,
@@ -334,12 +410,32 @@ mod tests {
             unit_of_work: stores.clone(),
             source_resolver: source_refs.clone(),
             evidence_resolver: evidence_refs.clone(),
-            ids,
-            clock,
+            ids: ids.clone(),
+            clock: clock.clone(),
+            idempotency: idempotency.clone(),
+        };
+        let promote_service = PromoteCommandService {
+            member_repo: stores.clone(),
+            backlog_repo: stores.clone(),
+            work_repo: stores.clone(),
+            promote_repo: stores.clone(),
+            audit_repo: stores.clone(),
+            outbox_repo: outbox.clone(),
+            command_results: results.clone(),
+            projection_repo: stores.clone(),
+            unit_of_work: stores.clone(),
+            source_resolver: source_refs.clone(),
+            ids: ids.clone(),
+            clock: clock.clone(),
             idempotency: idempotency.clone(),
         };
         (
-            WorkCommandHandlers::new(project_service, member_service, workitem_service),
+            WorkCommandHandlers::new(
+                project_service,
+                member_service,
+                workitem_service,
+                promote_service,
+            ),
             stores,
             outbox,
             results,
@@ -984,6 +1080,342 @@ mod tests {
         assert_eq!(stores.trace_count(), 6);
         assert_eq!(stores.stale_mark_count(), 6);
         assert_eq!(outbox.count(), 6);
+    }
+
+    #[tokio::test]
+    async fn tc_work_promote_001_request_promotion_persists_result_trace_and_outbox() {
+        let (
+            handlers,
+            stores,
+            outbox,
+            results,
+            _idempotency,
+            member_refs,
+            source_refs,
+            _evidence_refs,
+        ) = build_handlers();
+        let (_created, _assigned) = prepare_formal_work_context(&handlers, &member_refs).await;
+        source_refs.seed(
+            fixtures::source_work_ref(),
+            SourceResolverOutcome::Success {
+                has_external_body: false,
+            },
+        );
+
+        let result = handlers
+            .handle_request_work_promotion(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-promote-001"),
+                command: RequestWorkPromotionRequest {
+                    source_ref: fixtures::source_work_ref(),
+                    reason: fixtures::promote_reason(),
+                },
+            })
+            .await
+            .expect("request promotion should succeed");
+
+        assert_eq!(result.result_state, PromoteResultState::PendingReview);
+        assert_eq!(result.created_work_ref, None);
+        assert_eq!(result.receipt.idempotency, IdempotencyResultView::Applied);
+        assert_eq!(stores.trace_count(), 3);
+        assert_eq!(stores.stale_mark_count(), 2);
+        assert_eq!(outbox.count(), 3);
+        assert!(
+            results
+                .get_result(result.receipt.result_ref.clone())
+                .await
+                .expect("stored result read should succeed")
+                .is_some()
+        );
+        let (stored, version) = stores
+            .promote_result_snapshot(&result.promote_result_ref)
+            .expect("promote result should be stored");
+        assert_eq!(stored.result_state, PromoteResultState::PendingReview);
+        assert_eq!(version, 1);
+    }
+
+    #[tokio::test]
+    async fn tc_work_promote_002_review_accept_creates_formal_work() {
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            member_refs,
+            source_refs,
+            _evidence_refs,
+        ) = build_handlers();
+        let (created, assigned) = prepare_formal_work_context(&handlers, &member_refs).await;
+        source_refs.seed(
+            fixtures::source_work_ref(),
+            SourceResolverOutcome::Success {
+                has_external_body: false,
+            },
+        );
+        let requested = handlers
+            .handle_request_work_promotion(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-promote-002-request"),
+                command: RequestWorkPromotionRequest {
+                    source_ref: fixtures::source_work_ref(),
+                    reason: fixtures::promote_reason(),
+                },
+            })
+            .await
+            .expect("request promotion should succeed");
+
+        let reviewed = handlers
+            .handle_review_work_promotion(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-promote-002-review"),
+                command: ReviewWorkPromotionRequest {
+                    promote_result_ref: requested.promote_result_ref.clone(),
+                    decision: PromoteReviewDecision::Accept,
+                    accepted_work_intent: Some(work_contracts::FormalWorkIntent {
+                        assignee_ref: assigned.project_member_ref.clone(),
+                        ..fixtures::formal_work_intent()
+                    }),
+                    expected_version: 1,
+                },
+            })
+            .await
+            .expect("review accept should succeed");
+
+        assert_eq!(reviewed.result_state, PromoteResultState::Accepted);
+        assert_eq!(stores.trace_count(), 5);
+        assert_eq!(stores.stale_mark_count(), 3);
+        let created_work_ref = reviewed
+            .created_work_ref
+            .clone()
+            .expect("accept should create work");
+        let (promote, promote_version) = stores
+            .promote_result_snapshot(&requested.promote_result_ref)
+            .expect("promote result should remain stored");
+        assert_eq!(promote.result_state, PromoteResultState::Accepted);
+        assert_eq!(promote_version, 2);
+        let backlog = stores
+            .get_by_project(created.project_ref.clone())
+            .await
+            .expect("backlog lookup should succeed")
+            .expect("backlog should exist");
+        assert!(
+            stores
+                .backlog_membership(&backlog.backlog_ref())
+                .contains(&created_work_ref)
+        );
+        let (work_item, _version) = stores
+            .work_item_snapshot(&created_work_ref)
+            .expect("accepted promotion should create root work item");
+        assert_eq!(work_item.assignee_ref, assigned.project_member_ref);
+        let stale_marks = stores.stale_marks();
+        let (affected_views, _) = stale_marks
+            .last()
+            .expect("accept should append one stale marker write");
+        assert_eq!(
+            affected_views,
+            &vec![
+                DerivedWorkViewRef::project_board(created.project_ref.clone()),
+                DerivedWorkViewRef::member_work(assigned.project_member_ref.clone()),
+            ]
+        );
+        assert_eq!(stores.promote_decisions().len(), 1);
+        assert_eq!(outbox.count(), 5);
+    }
+
+    #[tokio::test]
+    async fn tc_work_promote_003_review_reject_records_decision_without_work() {
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            member_refs,
+            source_refs,
+            _evidence_refs,
+        ) = build_handlers();
+        let (created, assigned) = prepare_formal_work_context(&handlers, &member_refs).await;
+        source_refs.seed(
+            fixtures::source_work_ref(),
+            SourceResolverOutcome::Success {
+                has_external_body: false,
+            },
+        );
+        let requested = handlers
+            .handle_request_work_promotion(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-promote-003-request"),
+                command: RequestWorkPromotionRequest {
+                    source_ref: fixtures::source_work_ref(),
+                    reason: fixtures::promote_reason(),
+                },
+            })
+            .await
+            .expect("request promotion should succeed");
+
+        let invalid = handlers
+            .handle_review_work_promotion(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-promote-003-invalid-reject"),
+                command: ReviewWorkPromotionRequest {
+                    promote_result_ref: requested.promote_result_ref.clone(),
+                    decision: PromoteReviewDecision::Reject(fixtures::promote_reject_reason()),
+                    accepted_work_intent: Some(work_contracts::FormalWorkIntent {
+                        assignee_ref: assigned.project_member_ref.clone(),
+                        ..fixtures::formal_work_intent()
+                    }),
+                    expected_version: 1,
+                },
+            })
+            .await
+            .expect_err("reject with accepted intent should be invalid");
+        assert_eq!(invalid, WorkProtocolError::InvalidRequest);
+        assert_eq!(stores.trace_count(), 3);
+        assert_eq!(stores.stale_mark_count(), 2);
+        assert_eq!(stores.promote_decisions().len(), 0);
+        assert_eq!(outbox.count(), 3);
+
+        let reviewed = handlers
+            .handle_review_work_promotion(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-promote-003-review"),
+                command: ReviewWorkPromotionRequest {
+                    promote_result_ref: requested.promote_result_ref.clone(),
+                    decision: PromoteReviewDecision::Reject(fixtures::promote_reject_reason()),
+                    accepted_work_intent: None,
+                    expected_version: 1,
+                },
+            })
+            .await
+            .expect("review reject should succeed");
+
+        assert_eq!(reviewed.result_state, PromoteResultState::Rejected);
+        assert_eq!(reviewed.created_work_ref, None);
+        assert_eq!(stores.trace_count(), 4);
+        assert_eq!(stores.stale_mark_count(), 2);
+        assert_eq!(stores.promote_decisions().len(), 1);
+        let backlog = stores
+            .get_by_project(created.project_ref)
+            .await
+            .expect("backlog lookup should succeed")
+            .expect("backlog should exist");
+        assert!(stores.backlog_membership(&backlog.backlog_ref()).is_empty());
+        assert_eq!(outbox.count(), 4);
+    }
+
+    #[tokio::test]
+    async fn tc_work_promote_004_runtime_body_rejects_and_runtime_intake_fixture_stays_marker_only()
+    {
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            member_refs,
+            source_refs,
+            _evidence_refs,
+        ) = build_handlers();
+        let (_created, _assigned) = prepare_formal_work_context(&handlers, &member_refs).await;
+        source_refs.seed(
+            fixtures::source_work_ref(),
+            SourceResolverOutcome::Success {
+                has_external_body: true,
+            },
+        );
+
+        let error = handlers
+            .handle_request_work_promotion(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-promote-004"),
+                command: RequestWorkPromotionRequest {
+                    source_ref: fixtures::source_work_ref(),
+                    reason: fixtures::promote_reason(),
+                },
+            })
+            .await
+            .expect_err("body leak should be rejected");
+        assert_eq!(error, WorkProtocolError::DomainRejected);
+        assert_eq!(stores.promote_decisions().len(), 0);
+        assert!(stores.pending_promote_intakes().is_empty());
+        assert_eq!(outbox.count(), 2);
+
+        let intake = work_application::PendingPromoteIntake::from_runtime_event(
+            fixtures::runtime_source_work_ref(),
+            fixtures::promote_reason(),
+            fixtures::source_event_id(),
+        )
+        .expect("runtime intake fixture should build");
+        assert_eq!(intake.source_ref, fixtures::runtime_source_work_ref());
+    }
+
+    #[tokio::test]
+    async fn tc_work_promote_005_review_version_conflict_has_single_winner() {
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            member_refs,
+            source_refs,
+            _evidence_refs,
+        ) = build_handlers();
+        let (_created, assigned) = prepare_formal_work_context(&handlers, &member_refs).await;
+        source_refs.seed(
+            fixtures::source_work_ref(),
+            SourceResolverOutcome::Success {
+                has_external_body: false,
+            },
+        );
+        let requested = handlers
+            .handle_request_work_promotion(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-promote-005-request"),
+                command: RequestWorkPromotionRequest {
+                    source_ref: fixtures::source_work_ref(),
+                    reason: fixtures::promote_reason(),
+                },
+            })
+            .await
+            .expect("request promotion should succeed");
+
+        let accepted = handlers
+            .handle_review_work_promotion(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-promote-005-accept"),
+                command: ReviewWorkPromotionRequest {
+                    promote_result_ref: requested.promote_result_ref.clone(),
+                    decision: PromoteReviewDecision::Accept,
+                    accepted_work_intent: Some(work_contracts::FormalWorkIntent {
+                        assignee_ref: assigned.project_member_ref.clone(),
+                        ..fixtures::formal_work_intent()
+                    }),
+                    expected_version: 1,
+                },
+            })
+            .await
+            .expect("first review should succeed");
+        assert_eq!(accepted.result_state, PromoteResultState::Accepted);
+
+        let loser = handlers
+            .handle_review_work_promotion(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-promote-005-reject"),
+                command: ReviewWorkPromotionRequest {
+                    promote_result_ref: requested.promote_result_ref.clone(),
+                    decision: PromoteReviewDecision::Reject(fixtures::promote_reject_reason()),
+                    accepted_work_intent: None,
+                    expected_version: 1,
+                },
+            })
+            .await
+            .expect_err("stale review must lose with version conflict");
+        assert_eq!(loser, WorkProtocolError::VersionConflict);
+        assert_eq!(stores.stale_mark_count(), 3);
+        assert_eq!(stores.promote_decisions().len(), 1);
+        assert_eq!(outbox.count(), 5);
     }
 
     #[tokio::test]

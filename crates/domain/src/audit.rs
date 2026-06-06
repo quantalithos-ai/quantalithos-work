@@ -101,6 +101,9 @@ impl WorkAuditTrail {
             WorkAuditSubjectRef::FormalWork(work_ref) => {
                 WorkAuditTrailId(format!("audit:formal_work:{work_ref:?}"))
             }
+            WorkAuditSubjectRef::PromoteResult(promote_result_ref) => {
+                WorkAuditTrailId(format!("audit:promote_result:{promote_result_ref:?}"))
+            }
         };
 
         Self {
@@ -121,6 +124,9 @@ impl WorkAuditTrail {
                 lhs == rhs
             }
             (WorkAuditSubjectRef::FormalWork(lhs), WorkTraceSubjectRef::FormalWork(rhs)) => {
+                lhs == rhs
+            }
+            (WorkAuditSubjectRef::PromoteResult(lhs), WorkTraceSubjectRef::PromoteResult(rhs)) => {
                 lhs == rhs
             }
             _ => false,

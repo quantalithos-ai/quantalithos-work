@@ -9,11 +9,12 @@ use crate::refs::{
     BacklogMaintenanceReason, BacklogRef, CapabilityRefSet, ExternalEvidenceRef, FormalWorkIntent,
     FormalWorkRef, GlobalMemberRef, ProjectLifecycleReason, ProjectLifecycleTarget,
     ProjectMemberReason, ProjectMemberRef, ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind,
-    ResponsibilityTarget, SourceWorkRef, WorkLifecycleReason, WorkLifecycleTarget,
+    PromoteReason, PromoteResultRef, PromoteReviewDecision, ResponsibilityTarget, SourceWorkRef,
+    WorkLifecycleReason, WorkLifecycleTarget,
 };
 use crate::states::{
     BacklogAvailabilityTarget, BacklogState, ProjectLifecycleState,
-    ProjectMemberResponsibilityState, WorkItemState,
+    ProjectMemberResponsibilityState, PromoteResultState, WorkItemState,
 };
 
 /// A synchronous Work command envelope.
@@ -139,6 +140,28 @@ pub struct UpdateWorkItemLifecycleRequest {
     pub expected_version: core_contracts::metadata::Version,
 }
 
+/// Requests review of an external source for formal Work promotion.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RequestWorkPromotionRequest {
+    /// Source to evaluate.
+    pub source_ref: SourceWorkRef,
+    /// Reason for promotion.
+    pub reason: PromoteReason,
+}
+
+/// Requests a review decision for a promote result.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ReviewWorkPromotionRequest {
+    /// Promote result under review.
+    pub promote_result_ref: PromoteResultRef,
+    /// Review decision.
+    pub decision: PromoteReviewDecision,
+    /// Optional formal work intent when accepting into a new Work item.
+    pub accepted_work_intent: Option<FormalWorkIntent>,
+    /// Expected promote result version.
+    pub expected_version: core_contracts::metadata::Version,
+}
+
 /// Idempotency result visible to command and job callers.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -221,6 +244,28 @@ pub struct WorkItemCommandResult {
 }
 
 impl WorkItemCommandResult {
+    /// Returns a duplicate replay view while preserving the stored result surface.
+    pub fn with_duplicate_receipt(&self) -> Self {
+        let mut result = self.clone();
+        result.receipt = result.receipt.with_duplicate_overlay();
+        result
+    }
+}
+
+/// Result returned by promote commands.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PromoteCommandResult {
+    /// Promote result reference.
+    pub promote_result_ref: PromoteResultRef,
+    /// Current promote state.
+    pub result_state: PromoteResultState,
+    /// Formal work created by accepted promotion.
+    pub created_work_ref: Option<FormalWorkRef>,
+    /// Shared write receipt.
+    pub receipt: WorkCommandReceipt,
+}
+
+impl PromoteCommandResult {
     /// Returns a duplicate replay view while preserving the stored result surface.
     pub fn with_duplicate_receipt(&self) -> Self {
         let mut result = self.clone();

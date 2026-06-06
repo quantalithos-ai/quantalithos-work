@@ -6,8 +6,9 @@ use crate::{Backlog, DomainError, Project};
 use work_contracts::{
     BacklogAvailabilityTarget, BacklogMaintenanceReason, EvidenceVerifiedState,
     ExternalEvidenceRef, ExternalSourceSummary, FormalWorkIntent, FormalWorkRef, GlobalMemberRef,
-    ProjectLifecycleReason, ProjectLifecycleTarget, ProjectResponsibilitySpec, SourceWorkKind,
-    SourceWorkRef, WorkLifecycleReason, WorkLifecycleReasonKind, WorkPolicyScope, WorkTruthChange,
+    ProjectLifecycleReason, ProjectLifecycleTarget, ProjectResponsibilitySpec, PromoteDecision,
+    PromoteReason, PromoteRejectReason, PromoteRejectReasonKind, SourceWorkKind, SourceWorkRef,
+    WorkLifecycleReason, WorkLifecycleReasonKind, WorkPolicyScope, WorkTruthChange,
     WorkTruthSnapshot,
 };
 
@@ -53,6 +54,11 @@ impl WorkTruthPolicy {
                         | Some(work_contracts::BacklogState::Archived)
                 ) {
                     return Err(DomainError::PolicyRejected);
+                }
+            }
+            WorkTruthChange::PromoteResultRecorded(promote_result_ref) => {
+                if promote_result_ref.promote_result_id.0.trim().is_empty() {
+                    return Err(DomainError::RefMismatch);
                 }
             }
         }
@@ -182,6 +188,26 @@ impl BacklogAvailabilityPolicy {
                 BacklogAvailabilityTarget::Open,
             ) => Ok(()),
             _ => Err(DomainError::InvalidStateTransition),
+        }
+    }
+}
+
+/// Guards whether one source may be promoted into Work truth.
+pub struct PromotePolicy;
+
+impl PromotePolicy {
+    /// Returns the promote decision for one source and request reason.
+    pub fn can_promote(source_ref: SourceWorkRef, _reason: PromoteReason) -> PromoteDecision {
+        match source_ref.source_kind {
+            SourceWorkKind::Runtime | SourceWorkKind::Process => {
+                PromoteDecision::Reject(PromoteRejectReason {
+                    reason_kind: PromoteRejectReasonKind::PolicyRejected,
+                    reason_ref: None,
+                })
+            }
+            SourceWorkKind::Conversation
+            | SourceWorkKind::Artifact
+            | SourceWorkKind::Governance => PromoteDecision::Allow,
         }
     }
 }

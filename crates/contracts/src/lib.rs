@@ -10,10 +10,10 @@ pub mod states;
 pub use commands::{
     AssignProjectMemberRequest, BacklogCommandResult, CreateChildWorkItemRequest,
     CreateProjectRequest, CreateWorkItemRequest, IdempotencyResultView, ProjectCommandResult,
-    ProjectMemberCommandResult, ProjectResponsibilitySpec, ProjectSpec,
-    UpdateBacklogAvailabilityRequest, UpdateProjectLifecycleRequest,
-    UpdateProjectMemberResponsibilityRequest, UpdateWorkItemLifecycleRequest, WorkCommandEnvelope,
-    WorkItemCommandResult,
+    ProjectMemberCommandResult, ProjectResponsibilitySpec, ProjectSpec, PromoteCommandResult,
+    RequestWorkPromotionRequest, ReviewWorkPromotionRequest, UpdateBacklogAvailabilityRequest,
+    UpdateProjectLifecycleRequest, UpdateProjectMemberResponsibilityRequest,
+    UpdateWorkItemLifecycleRequest, WorkCommandEnvelope, WorkItemCommandResult,
 };
 pub use errors::WorkProtocolError;
 pub use handoff::{ApplicationResultRef, WorkCommandReceipt, WorkTraceContextRef};
@@ -28,17 +28,19 @@ pub use refs::{
     OutboxFailureReasonKind, OutboxPublicationRef, OutboxRetryReason, ProjectId,
     ProjectLifecycleReason, ProjectLifecycleReasonKind, ProjectLifecycleTarget, ProjectMemberId,
     ProjectMemberReason, ProjectMemberReasonKind, ProjectMemberRef, ProjectOwnerKind,
-    ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind, ResponsibilityTarget, ResultId,
-    SafeSummaryText, SourceDigest, SourceWorkKind, SourceWorkRef, TraceHandoffIntent,
-    TraceHandoffRef, TraceHandoffTargetKind, TraceHandoffTargetRef, WorkAuditSubjectRef,
-    WorkAuditTrailId, WorkItemId, WorkLifecycleReason, WorkLifecycleReasonKind,
-    WorkLifecycleTarget, WorkOutboxEventKind, WorkOutboxId, WorkPolicyScope, WorkTitle,
-    WorkTraceId, WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange, WorkTruthCursor,
-    WorkTruthSnapshot,
+    ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind, PromoteDecision, PromoteDecisionId,
+    PromoteReason, PromoteReasonKind, PromoteRejectReason, PromoteRejectReasonKind,
+    PromoteResultId, PromoteResultRef, PromoteReviewDecision, ResponsibilityTarget, ResultId,
+    SafeSummaryText, SourceDigest, SourceEventId, SourceWorkKind, SourceWorkRef,
+    TraceHandoffIntent, TraceHandoffRef, TraceHandoffTargetKind, TraceHandoffTargetRef,
+    WorkAuditSubjectRef, WorkAuditTrailId, WorkItemId, WorkLifecycleReason,
+    WorkLifecycleReasonKind, WorkLifecycleTarget, WorkOutboxEventKind, WorkOutboxId,
+    WorkPolicyScope, WorkTitle, WorkTraceId, WorkTraceRecordRefSet, WorkTraceSubjectRef,
+    WorkTruthChange, WorkTruthCursor, WorkTruthSnapshot,
 };
 pub use states::{
     BacklogAvailabilityTarget, BacklogState, OutboxPublicationState, ProjectLifecycleState,
-    ProjectMemberResponsibilityState, WorkItemState,
+    ProjectMemberResponsibilityState, PromoteResultState, WorkItemState,
 };
 
 #[cfg(test)]
@@ -49,7 +51,8 @@ mod tests {
     use super::commands::{
         AssignProjectMemberRequest, BacklogCommandResult, CreateChildWorkItemRequest,
         CreateProjectRequest, CreateWorkItemRequest, IdempotencyResultView, ProjectCommandResult,
-        ProjectMemberCommandResult, UpdateBacklogAvailabilityRequest,
+        ProjectMemberCommandResult, PromoteCommandResult, RequestWorkPromotionRequest,
+        ReviewWorkPromotionRequest, UpdateBacklogAvailabilityRequest,
         UpdateProjectLifecycleRequest, UpdateProjectMemberResponsibilityRequest,
         UpdateWorkItemLifecycleRequest, WorkCommandEnvelope, WorkItemCommandResult,
     };
@@ -58,12 +61,12 @@ mod tests {
     use super::refs::{
         BacklogMaintenanceReason, BacklogMaintenanceReasonKind, ProjectLifecycleReason,
         ProjectLifecycleReasonKind, ProjectLifecycleTarget, ProjectMemberReason,
-        ProjectMemberReasonKind, ResponsibilityTarget, TraceHandoffIntent, TraceHandoffTargetKind,
-        TraceHandoffTargetRef, WorkTruthChange,
+        ProjectMemberReasonKind, PromoteReviewDecision, ResponsibilityTarget, TraceHandoffIntent,
+        TraceHandoffTargetKind, TraceHandoffTargetRef, WorkTruthChange,
     };
     use super::states::{
         BacklogAvailabilityTarget, BacklogState, ProjectLifecycleState,
-        ProjectMemberResponsibilityState, WorkItemState,
+        ProjectMemberResponsibilityState, PromoteResultState, WorkItemState,
     };
 
     fn roundtrip<T>(value: &T)
@@ -131,6 +134,16 @@ mod tests {
             evidence_ref: Some(fixtures::completion_evidence_ref()),
             expected_version: 7,
         });
+        roundtrip(&RequestWorkPromotionRequest {
+            source_ref: fixtures::source_work_ref(),
+            reason: fixtures::promote_reason(),
+        });
+        roundtrip(&ReviewWorkPromotionRequest {
+            promote_result_ref: fixtures::promote_result_ref(),
+            decision: PromoteReviewDecision::Reject(fixtures::promote_reject_reason()),
+            accepted_work_intent: None,
+            expected_version: 2,
+        });
     }
 
     #[test]
@@ -184,6 +197,18 @@ mod tests {
                 applied_version: Some(1),
             },
         });
+        roundtrip(&PromoteCommandResult {
+            promote_result_ref: fixtures::promote_result_ref(),
+            result_state: PromoteResultState::PendingReview,
+            created_work_ref: None,
+            receipt: WorkCommandReceipt {
+                result_ref: fixtures::application_result_ref("request_work_promotion", "result-4"),
+                idempotency: IdempotencyResultView::Applied,
+                trace_ref: Some(fixtures::trace_id()),
+                outbox_record_refs: vec![fixtures::outbox_id()],
+                applied_version: Some(1),
+            },
+        });
     }
 
     #[test]
@@ -206,6 +231,9 @@ mod tests {
         ));
         roundtrip(&WorkTruthChange::WorkItemChanged(
             fixtures::formal_work_ref(),
+        ));
+        roundtrip(&WorkTruthChange::PromoteResultRecorded(
+            fixtures::promote_result_ref(),
         ));
         roundtrip(&WorkTraceContextRef::from_metadata(
             &fixtures::request_metadata(None),

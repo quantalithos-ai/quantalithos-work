@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use core_contracts::metadata::Timestamp;
 use work_application::{ClockPort, IdGeneratorPort, PortError};
 use work_contracts::{
-    BacklogId, ChildWorkItemId, ProjectId, ProjectMemberId, ResultId, WorkItemId, WorkOutboxId,
-    WorkTraceId,
+    BacklogId, ChildWorkItemId, ProjectId, ProjectMemberId, PromoteDecisionId, PromoteResultId,
+    ResultId, WorkItemId, WorkOutboxId, WorkTraceId,
 };
 
 /// Deterministic id generator for P0 fake adapters and tests.
@@ -22,6 +22,8 @@ struct Counters {
     project_member: u64,
     work_item: u64,
     child_work_item: u64,
+    promote_result: u64,
+    promote_decision: u64,
     result: u64,
     outbox: u64,
     trace: u64,
@@ -68,6 +70,24 @@ impl IdGeneratorPort for DeterministicWorkIdGenerator {
         Ok(ChildWorkItemId(format!(
             "child-work-item-{}",
             counters.child_work_item
+        )))
+    }
+
+    fn next_promote_result_id(&self) -> Result<PromoteResultId, PortError> {
+        let mut counters = self.counters.lock().map_err(|_| PortError::Unavailable)?;
+        counters.promote_result += 1;
+        Ok(PromoteResultId(format!(
+            "promote-result-{}",
+            counters.promote_result
+        )))
+    }
+
+    fn next_promote_decision_id(&self) -> Result<PromoteDecisionId, PortError> {
+        let mut counters = self.counters.lock().map_err(|_| PortError::Unavailable)?;
+        counters.promote_decision += 1;
+        Ok(PromoteDecisionId(format!(
+            "promote-decision-{}",
+            counters.promote_decision
         )))
     }
 

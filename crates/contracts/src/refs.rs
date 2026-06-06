@@ -26,6 +26,8 @@ string_newtype!(BacklogId, "Identifies a Work-owned backlog.");
 string_newtype!(WorkItemId, "Identifies a formal root work item.");
 string_newtype!(ChildWorkItemId, "Identifies a formal child work item.");
 string_newtype!(IterationId, "Identifies a Work-owned iteration.");
+string_newtype!(PromoteResultId, "Identifies a promote result.");
+string_newtype!(PromoteDecisionId, "Identifies a promote decision record.");
 string_newtype!(
     CapabilityRef,
     "Capability reference from identity or method policy."
@@ -56,6 +58,7 @@ string_newtype!(
     "Digest supplied by an external source summary."
 );
 string_newtype!(ResultId, "Stable result or receipt identifier.");
+string_newtype!(SourceEventId, "Identifies an upstream source event.");
 string_newtype!(
     OutboxPublicationRef,
     "Publication reference returned by the outbox publisher."
@@ -90,6 +93,13 @@ pub struct ProjectMemberRef {
 pub struct BacklogRef {
     /// Stable backlog id.
     pub backlog_id: BacklogId,
+}
+
+/// References a promote result.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub struct PromoteResultRef {
+    /// Stable promote result id.
+    pub promote_result_id: PromoteResultId,
 }
 
 /// References formal Work truth regardless of root or child shape.
@@ -311,6 +321,16 @@ pub enum WorkLifecycleTarget {
     Superseded,
 }
 
+/// Review decision for a promote result.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromoteReviewDecision {
+    /// Accept the source into formal Work.
+    Accept,
+    /// Reject the source with an auditable reason.
+    Reject(PromoteRejectReason),
+}
+
 /// Target lifecycle state requested for a Work project.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -403,6 +423,24 @@ pub struct WorkLifecycleReason {
     pub reason_ref: Option<ExternalEvidenceRef>,
 }
 
+/// Reason supplied for a promote request.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PromoteReason {
+    /// Reason category.
+    pub reason_kind: PromoteReasonKind,
+    /// Optional source summary reference.
+    pub source_summary_ref: Option<SourceWorkRef>,
+}
+
+/// Reason supplied when a promote review rejects the source.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PromoteRejectReason {
+    /// Rejection category.
+    pub reason_kind: PromoteRejectReasonKind,
+    /// Optional external evidence or decision reference.
+    pub reason_ref: Option<ExternalEvidenceRef>,
+}
+
 /// Backlog availability explanation category.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -427,6 +465,34 @@ pub enum WorkLifecycleReasonKind {
     Cancellation,
     /// Work superseded by another formal record.
     Superseded,
+}
+
+/// Promote request explanation category.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromoteReasonKind {
+    /// Promotion request came from runtime.
+    RuntimeRequest,
+    /// Promotion request came from conversation context.
+    ConversationSignal,
+    /// Promotion request came from governance recommendation.
+    GovernanceRecommendation,
+    /// Promotion request was raised manually for review.
+    ManualReview,
+}
+
+/// Promote rejection category.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromoteRejectReasonKind {
+    /// The source is not collaborative Work.
+    NotCollaborativeWork,
+    /// The source duplicates existing truth.
+    Duplicate,
+    /// The source lacks sufficient evidence.
+    InsufficientEvidence,
+    /// Policy rejected the promotion.
+    PolicyRejected,
 }
 
 /// Work outbox event category derived from a truth change.
@@ -494,6 +560,8 @@ pub enum WorkTraceSubjectRef {
     ProjectMember(ProjectMemberRef),
     /// Formal work subject.
     FormalWork(FormalWorkRef),
+    /// Promote result subject.
+    PromoteResult(PromoteResultRef),
     /// Trace or archive handoff subject.
     Handoff(TraceHandoffRef),
 }
@@ -509,6 +577,8 @@ pub enum WorkAuditSubjectRef {
     ProjectMember(ProjectMemberRef),
     /// Formal work audit subject.
     FormalWork(FormalWorkRef),
+    /// Promote result audit subject.
+    PromoteResult(PromoteResultRef),
 }
 
 /// Set of trace records linked from an audit trail.
@@ -531,6 +601,8 @@ pub enum WorkTruthChange {
     BacklogAvailabilityChanged(BacklogRef),
     /// A formal work item changed.
     WorkItemChanged(FormalWorkRef),
+    /// A promote result was recorded.
+    PromoteResultRecorded(PromoteResultRef),
 }
 
 impl WorkTruthChange {
@@ -547,6 +619,9 @@ impl WorkTruthChange {
                 WorkTraceSubjectRef::Backlog(backlog_ref.clone())
             }
             Self::WorkItemChanged(work_ref) => WorkTraceSubjectRef::FormalWork(work_ref.clone()),
+            Self::PromoteResultRecorded(promote_result_ref) => {
+                WorkTraceSubjectRef::PromoteResult(promote_result_ref.clone())
+            }
         }
     }
 
@@ -563,6 +638,9 @@ impl WorkTruthChange {
                 WorkAuditSubjectRef::Backlog(backlog_ref.clone())
             }
             Self::WorkItemChanged(work_ref) => WorkAuditSubjectRef::FormalWork(work_ref.clone()),
+            Self::PromoteResultRecorded(promote_result_ref) => {
+                WorkAuditSubjectRef::PromoteResult(promote_result_ref.clone())
+            }
         }
     }
 
@@ -575,6 +653,7 @@ impl WorkTruthChange {
             Self::ProjectMemberChanged(_) => WorkOutboxEventKind::ProjectMemberChanged,
             Self::BacklogAvailabilityChanged(_) => WorkOutboxEventKind::BacklogChanged,
             Self::WorkItemChanged(_) => WorkOutboxEventKind::WorkItemChanged,
+            Self::PromoteResultRecorded(_) => WorkOutboxEventKind::PromoteResultRecorded,
         }
     }
 }
@@ -627,6 +706,17 @@ pub struct ExternalSourceSummary {
     pub source_digest: Option<SourceDigest>,
     /// Whether the resolver observed an external body that must be rejected.
     pub has_external_body: bool,
+}
+
+/// Decision returned by promote policy before a promote result is mutated.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum PromoteDecision {
+    /// Promotion may proceed.
+    Allow,
+    /// Promotion must be rejected with a reason.
+    Reject(PromoteRejectReason),
+    /// Promotion duplicates an existing formal work record.
+    Duplicate(FormalWorkRef),
 }
 
 /// Trace handoff target category.

@@ -4,34 +4,38 @@ mod audit;
 mod errors;
 mod policies;
 mod project;
+mod promote;
 
 pub use audit::{TraceHandoffMarker, WorkAuditTrail, WorkOutboxRecord, WorkTraceRecord};
 pub use errors::DomainError;
 pub use policies::{
     BacklogAvailabilityPolicy, CompletionEvidencePolicy, FormalWorkPolicy,
-    MemberResponsibilityPolicy, ProjectLifecyclePolicy, WorkTruthPolicy,
+    MemberResponsibilityPolicy, ProjectLifecyclePolicy, PromotePolicy, WorkTruthPolicy,
 };
 pub use project::{
     Backlog, ChildWorkItem, MemberCapabilitySnapshot, Project, ProjectMember,
     ReferenceResolutionState, WorkItem,
 };
+pub use promote::{PendingPromoteIntake, PromoteDecisionRecord, PromoteResult};
 
 #[cfg(test)]
 mod tests {
     use core_contracts::actor::{ActorKind, ActorRef};
 
     use crate::{
-        Backlog, ChildWorkItem, DomainError, FormalWorkPolicy, MemberCapabilitySnapshot, Project,
-        ProjectMember, TraceHandoffMarker, WorkAuditTrail, WorkItem, WorkOutboxRecord,
-        WorkTraceRecord, WorkTruthPolicy,
+        Backlog, ChildWorkItem, DomainError, FormalWorkPolicy, MemberCapabilitySnapshot,
+        PendingPromoteIntake, Project, ProjectMember, PromoteDecisionRecord, PromoteResult,
+        TraceHandoffMarker, WorkAuditTrail, WorkItem, WorkOutboxRecord, WorkTraceRecord,
+        WorkTruthPolicy,
     };
     use work_contracts::{
         BacklogAvailabilityTarget, BacklogMaintenanceReason, BacklogMaintenanceReasonKind,
         ExternalSourceSummary, OutboxPublicationState, ProjectLifecycleReason,
         ProjectLifecycleReasonKind, ProjectLifecycleState, ProjectLifecycleTarget,
         ProjectMemberReason, ProjectMemberReasonKind, ProjectMemberResponsibilityState,
-        TraceHandoffTargetKind, TraceHandoffTargetRef, WorkAuditSubjectRef, WorkLifecycleTarget,
-        WorkOutboxEventKind, WorkTraceSubjectRef, WorkTruthChange, fixtures,
+        PromoteDecisionId, PromoteResultState, TraceHandoffTargetKind, TraceHandoffTargetRef,
+        WorkAuditSubjectRef, WorkLifecycleTarget, WorkOutboxEventKind, WorkTraceSubjectRef,
+        WorkTruthChange, fixtures,
     };
 
     fn actor() -> ActorRef {
@@ -343,6 +347,56 @@ mod tests {
     }
 
     #[test]
+    fn promote_result_and_runtime_intake_follow_promote_boundary() {
+        let actor = actor();
+        let mut result = PromoteResult::evaluate(
+            fixtures::promote_result_id(),
+            fixtures::source_work_ref(),
+            fixtures::promote_reason(),
+            actor.clone(),
+        )
+        .expect("promote result should be created");
+        assert_eq!(result.result_state, PromoteResultState::PendingReview);
+        assert_eq!(result.created_work_ref, None);
+
+        result
+            .accept(fixtures::formal_work_ref(), actor.clone())
+            .expect("accept should succeed");
+        assert_eq!(result.result_state, PromoteResultState::Accepted);
+        assert_eq!(result.created_work_ref, Some(fixtures::formal_work_ref()));
+
+        let mut rejected = PromoteResult::evaluate(
+            fixtures::promote_result_id(),
+            fixtures::source_work_ref(),
+            fixtures::promote_reason(),
+            actor.clone(),
+        )
+        .expect("promote result should be created");
+        rejected
+            .reject(fixtures::promote_reject_reason(), actor.clone())
+            .expect("reject should succeed");
+        assert_eq!(rejected.result_state, PromoteResultState::Rejected);
+        assert_eq!(rejected.created_work_ref, None);
+
+        let intake = PendingPromoteIntake::from_runtime_event(
+            fixtures::runtime_source_work_ref(),
+            fixtures::promote_reason(),
+            fixtures::source_event_id(),
+        )
+        .expect("runtime intake marker should build");
+        assert_eq!(intake.source_ref, fixtures::runtime_source_work_ref());
+        assert_eq!(intake.source_event_id, fixtures::source_event_id());
+
+        let decision = PromoteDecisionRecord::from_result(
+            PromoteDecisionId("promote-decision-1".to_owned()),
+            rejected,
+            actor.clone(),
+        )
+        .expect("decision record should build");
+        assert_eq!(decision.result_ref, fixtures::promote_result_ref());
+    }
+
+    #[test]
     fn backlog_maintenance_lock_rejects_new_formal_work() {
         let actor = actor();
         let mut backlog = Backlog::open_for_project(
@@ -560,11 +614,39 @@ mod tests {
         .expect("work outbox should succeed");
         assert_eq!(work_outbox.event_kind, WorkOutboxEventKind::WorkItemChanged);
 
+        let promote_trace = WorkTraceRecord::from_truth_change(
+            fixtures::trace_id(),
+            fixtures::promote_result_recorded_change(),
+            fixtures::trace_context_ref(),
+        )
+        .expect("promote trace should succeed");
+        assert_eq!(
+            promote_trace.subject_ref,
+            WorkTraceSubjectRef::PromoteResult(fixtures::promote_result_ref())
+        );
+
+        let promote_outbox = WorkOutboxRecord::from_truth_change(
+            fixtures::outbox_id(),
+            fixtures::promote_result_recorded_change(),
+        )
+        .expect("promote outbox should succeed");
+        assert_eq!(
+            promote_outbox.event_kind,
+            WorkOutboxEventKind::PromoteResultRecorded
+        );
+
         let mut work_audit = WorkAuditTrail::start_for_subject(WorkAuditSubjectRef::FormalWork(
             fixtures::formal_work_ref(),
         ));
         work_audit
             .append(work_trace)
             .expect("work audit append should succeed");
+
+        let mut promote_audit = WorkAuditTrail::start_for_subject(
+            WorkAuditSubjectRef::PromoteResult(fixtures::promote_result_ref()),
+        );
+        promote_audit
+            .append(promote_trace)
+            .expect("promote audit append should succeed");
     }
 }

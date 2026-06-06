@@ -8,12 +8,13 @@ use crate::UnitOfWorkHandle;
 use work_contracts::{
     BacklogRef, DerivedWorkViewRef, ExternalEvidenceRef, ExternalSourceSummary, FormalWorkRef,
     GlobalMemberRef, OutboxFailureReason, OutboxPublicationRef, OutboxRetryReason, ProjectMemberId,
-    ProjectMemberRef, ProjectOwnerRef, ProjectRef, SourceWorkRef, WorkAuditSubjectRef,
-    WorkOutboxId, WorkTruthCursor,
+    ProjectMemberRef, ProjectOwnerRef, ProjectRef, PromoteResultRef, SourceWorkRef,
+    WorkAuditSubjectRef, WorkOutboxId, WorkTruthCursor,
 };
 use work_domain::{
-    Backlog, ChildWorkItem, MemberCapabilitySnapshot, ProjectMember, TraceHandoffMarker,
-    WorkAuditTrail, WorkItem, WorkOutboxRecord, WorkTraceRecord,
+    Backlog, ChildWorkItem, MemberCapabilitySnapshot, PendingPromoteIntake, ProjectMember,
+    PromoteDecisionRecord, PromoteResult, TraceHandoffMarker, WorkAuditTrail, WorkItem,
+    WorkOutboxRecord, WorkTraceRecord,
 };
 
 /// A repository page returned before public query mapping.
@@ -272,6 +273,51 @@ pub trait WorkItemRepository: Send + Sync {
     ) -> Result<Version, RepositoryError>;
 }
 
+/// Stores promote decisions and runtime intake markers.
+#[async_trait]
+pub trait PromoteRepository: Send + Sync {
+    /// Loads a promote result by Work identity.
+    async fn get(
+        &self,
+        promote_result_ref: PromoteResultRef,
+    ) -> Result<Option<PromoteResult>, RepositoryError>;
+
+    /// Finds the latest promote result for one source reference.
+    async fn find_latest_by_source(
+        &self,
+        source_ref: SourceWorkRef,
+    ) -> Result<Option<PromoteResult>, RepositoryError>;
+
+    /// Creates a promote result inside the current unit of work.
+    async fn create(
+        &self,
+        result: PromoteResult,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError>;
+
+    /// Saves a promote state change inside the current unit of work.
+    async fn save(
+        &self,
+        result: PromoteResult,
+        expected_version: Version,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError>;
+
+    /// Appends a promote decision history record.
+    async fn append_decision(
+        &self,
+        decision: PromoteDecisionRecord,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<(), RepositoryError>;
+
+    /// Saves an inbound runtime promote request marker without creating promote truth.
+    async fn save_pending_intake(
+        &self,
+        intake: PendingPromoteIntake,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<(), RepositoryError>;
+}
+
 /// Stores local member snapshots needed by member command flows.
 #[async_trait]
 pub trait ReferenceSnapshotRepository: Send + Sync {
@@ -430,6 +476,12 @@ pub trait IdGeneratorPort: Send + Sync {
 
     /// Generates a child work item id.
     fn next_child_work_item_id(&self) -> Result<work_contracts::ChildWorkItemId, PortError>;
+
+    /// Generates a promote result id.
+    fn next_promote_result_id(&self) -> Result<work_contracts::PromoteResultId, PortError>;
+
+    /// Generates a promote decision history id.
+    fn next_promote_decision_id(&self) -> Result<work_contracts::PromoteDecisionId, PortError>;
 
     /// Generates a result id.
     fn next_result_id(&self) -> Result<work_contracts::ResultId, PortError>;

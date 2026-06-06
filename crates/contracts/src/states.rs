@@ -60,6 +60,20 @@ pub enum WorkItemState {
     Superseded,
 }
 
+/// Decision state for an external source promotion review.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromoteResultState {
+    /// The source is waiting for review.
+    PendingReview,
+    /// The source was accepted and linked to formal work.
+    Accepted,
+    /// The source was rejected with a reason.
+    Rejected,
+    /// The decision was superseded by a later review.
+    Superseded,
+}
+
 /// Target availability state requested for a backlog.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

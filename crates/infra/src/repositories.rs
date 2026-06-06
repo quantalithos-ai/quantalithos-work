@@ -7,16 +7,19 @@ use async_trait::async_trait;
 use core_contracts::metadata::{PageRequest, Version};
 use work_application::{
     AuditRepository, BacklogRepository, FormalWorkRecord, Page, PageInfo, ProjectMemberRepository,
-    ProjectRepository, ProjectionRepository, ReferenceSnapshotRepository, RepositoryError,
-    UnitOfWork, UnitOfWorkError, UnitOfWorkHandle, UnitOfWorkId, WorkItemRepository,
+    ProjectRepository, ProjectionRepository, PromoteRepository, ReferenceSnapshotRepository,
+    RepositoryError, UnitOfWork, UnitOfWorkError, UnitOfWorkHandle, UnitOfWorkId,
+    WorkItemRepository,
 };
 use work_contracts::{
     BacklogRef, DerivedWorkViewRef, FormalWorkRef, GlobalMemberRef, ProjectMemberRef,
-    ProjectOwnerRef, ProjectRef, WorkAuditSubjectRef, WorkTruthCursor,
+    ProjectOwnerRef, ProjectRef, PromoteResultRef, SourceWorkRef, WorkAuditSubjectRef,
+    WorkTruthCursor,
 };
 use work_domain::{
-    Backlog, ChildWorkItem, MemberCapabilitySnapshot, ProjectMember, TraceHandoffMarker,
-    WorkAuditTrail, WorkItem, WorkTraceRecord,
+    Backlog, ChildWorkItem, MemberCapabilitySnapshot, PendingPromoteIntake, ProjectMember,
+    PromoteDecisionRecord, PromoteResult, TraceHandoffMarker, WorkAuditTrail, WorkItem,
+    WorkTraceRecord,
 };
 
 /// Shared in-memory fake stores for CORE command service tests.
@@ -36,6 +39,10 @@ struct Stores {
     project_member_by_project_and_member: HashMap<(String, String), String>,
     work_items: HashMap<String, (WorkItem, Version)>,
     child_work_items: HashMap<String, (ChildWorkItem, Version)>,
+    promote_results: HashMap<String, (PromoteResult, Version)>,
+    promote_latest_by_source: HashMap<String, String>,
+    promote_decisions: Vec<PromoteDecisionRecord>,
+    pending_promote_intakes: Vec<PendingPromoteIntake>,
     member_snapshots: HashMap<String, (MemberCapabilitySnapshot, Version)>,
     audit_trails: HashMap<String, (WorkAuditTrail, Version)>,
     traces: Vec<WorkTraceRecord>,
@@ -138,6 +145,35 @@ impl InMemoryWorkStores {
             .lock()
             .ok()
             .and_then(|state| state.child_work_items.get(&child_work_item_id.0).cloned())
+    }
+
+    /// Returns one stored promote result and version by ref.
+    pub fn promote_result_snapshot(
+        &self,
+        promote_result_ref: &PromoteResultRef,
+    ) -> Option<(PromoteResult, Version)> {
+        self.state.lock().ok().and_then(|state| {
+            state
+                .promote_results
+                .get(&promote_result_ref.promote_result_id.0)
+                .cloned()
+        })
+    }
+
+    /// Returns all recorded promote decisions in append order.
+    pub fn promote_decisions(&self) -> Vec<PromoteDecisionRecord> {
+        self.state
+            .lock()
+            .map(|state| state.promote_decisions.clone())
+            .unwrap_or_default()
+    }
+
+    /// Returns all pending runtime promote intake markers.
+    pub fn pending_promote_intakes(&self) -> Vec<PendingPromoteIntake> {
+        self.state
+            .lock()
+            .map(|state| state.pending_promote_intakes.clone())
+            .unwrap_or_default()
     }
 
     /// Returns the formal work membership for one backlog.
@@ -330,7 +366,9 @@ impl BacklogRepository for InMemoryWorkStores {
         if state.backlogs.contains_key(&backlog_id) {
             return Err(RepositoryError::VersionConflict);
         }
-        state.backlog_by_project.insert(project_id, backlog_id.clone());
+        state
+            .backlog_by_project
+            .insert(project_id, backlog_id.clone());
         state.backlogs.insert(backlog_id.clone(), (backlog, 1));
         state.backlog_membership.entry(backlog_id).or_default();
         Ok(1)
@@ -491,6 +529,116 @@ impl WorkItemRepository for InMemoryWorkStores {
                 Ok(entry.1)
             }
         }
+    }
+}
+
+#[async_trait]
+impl PromoteRepository for InMemoryWorkStores {
+    async fn get(
+        &self,
+        promote_result_ref: PromoteResultRef,
+    ) -> Result<Option<PromoteResult>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(state
+            .promote_results
+            .get(&promote_result_ref.promote_result_id.0)
+            .map(|(result, _)| result.clone()))
+    }
+
+    async fn find_latest_by_source(
+        &self,
+        source_ref: SourceWorkRef,
+    ) -> Result<Option<PromoteResult>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let Some(promote_result_id) = state
+            .promote_latest_by_source
+            .get(&source_ref.external_ref.external_id)
+        else {
+            return Ok(None);
+        };
+        Ok(state
+            .promote_results
+            .get(promote_result_id)
+            .map(|(result, _)| result.clone()))
+    }
+
+    async fn create(
+        &self,
+        result: PromoteResult,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        if state
+            .promote_results
+            .contains_key(&result.promote_result_id.0)
+        {
+            return Err(RepositoryError::VersionConflict);
+        }
+        state.promote_latest_by_source.insert(
+            result.source_ref.external_ref.external_id.clone(),
+            result.promote_result_id.0.clone(),
+        );
+        state
+            .promote_results
+            .insert(result.promote_result_id.0.clone(), (result, 1));
+        Ok(1)
+    }
+
+    async fn save(
+        &self,
+        result: PromoteResult,
+        expected_version: Version,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let entry = state
+            .promote_results
+            .get_mut(&result.promote_result_id.0)
+            .ok_or(RepositoryError::NotFound)?;
+        if entry.1 != expected_version {
+            return Err(RepositoryError::VersionConflict);
+        }
+        entry.0 = result;
+        entry.1 += 1;
+        Ok(entry.1)
+    }
+
+    async fn append_decision(
+        &self,
+        decision: PromoteDecisionRecord,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<(), RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        state.promote_decisions.push(decision);
+        Ok(())
+    }
+
+    async fn save_pending_intake(
+        &self,
+        intake: PendingPromoteIntake,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<(), RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        state.pending_promote_intakes.push(intake);
+        Ok(())
     }
 }
 

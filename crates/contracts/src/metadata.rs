@@ -16,10 +16,12 @@ use crate::{
         EvidenceVerifiedState, ExternalEvidenceRef, ExternalSourceRef, ExternalSourceSystem,
         FormalWorkIntent, FormalWorkRef, GlobalMemberRef, IterationId, IterationRef,
         MethodDefinitionRef, ProjectId, ProjectMemberId, ProjectMemberRef, ProjectOwnerKind,
-        ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind, ResultId, SafeSummaryText,
-        SourceDigest, SourceWorkKind, SourceWorkRef, TraceHandoffRef, WorkAuditSubjectRef,
-        WorkAuditTrailId, WorkItemId, WorkLifecycleReason, WorkLifecycleReasonKind, WorkOutboxId,
-        WorkTitle, WorkTraceId, WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange,
+        ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind, PromoteReason, PromoteReasonKind,
+        PromoteRejectReason, PromoteRejectReasonKind, PromoteResultId, PromoteResultRef, ResultId,
+        SafeSummaryText, SourceDigest, SourceEventId, SourceWorkKind, SourceWorkRef,
+        TraceHandoffRef, WorkAuditSubjectRef, WorkAuditTrailId, WorkItemId, WorkLifecycleReason,
+        WorkLifecycleReasonKind, WorkOutboxId, WorkTitle, WorkTraceId, WorkTraceRecordRefSet,
+        WorkTraceSubjectRef, WorkTruthChange,
     },
 };
 
@@ -296,6 +298,39 @@ pub mod fixtures {
         }
     }
 
+    /// Returns a deterministic promote result id.
+    pub fn promote_result_id() -> PromoteResultId {
+        PromoteResultId("promote-result-1".to_owned())
+    }
+
+    /// Returns a deterministic promote result ref.
+    pub fn promote_result_ref() -> PromoteResultRef {
+        PromoteResultRef {
+            promote_result_id: promote_result_id(),
+        }
+    }
+
+    /// Returns a deterministic promote request reason.
+    pub fn promote_reason() -> PromoteReason {
+        PromoteReason {
+            reason_kind: PromoteReasonKind::ManualReview,
+            source_summary_ref: Some(source_work_ref()),
+        }
+    }
+
+    /// Returns a deterministic promote reject reason.
+    pub fn promote_reject_reason() -> PromoteRejectReason {
+        PromoteRejectReason {
+            reason_kind: PromoteRejectReasonKind::PolicyRejected,
+            reason_ref: Some(completion_evidence_ref()),
+        }
+    }
+
+    /// Returns a deterministic source event id.
+    pub fn source_event_id() -> SourceEventId {
+        SourceEventId("source-event-1".to_owned())
+    }
+
     /// Returns a deterministic project trace subject.
     pub fn project_trace_subject() -> WorkTraceSubjectRef {
         WorkTraceSubjectRef::Project(project_ref())
@@ -331,6 +366,11 @@ pub mod fixtures {
     /// Returns a deterministic work-item change.
     pub fn work_item_changed_change() -> WorkTruthChange {
         WorkTruthChange::WorkItemChanged(formal_work_ref())
+    }
+
+    /// Returns a deterministic promote-result change.
+    pub fn promote_result_recorded_change() -> WorkTruthChange {
+        WorkTruthChange::PromoteResultRecorded(promote_result_ref())
     }
 
     /// Returns a deterministic trace context ref.
