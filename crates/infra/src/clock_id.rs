@@ -5,9 +5,9 @@ use std::sync::{Arc, Mutex};
 use core_contracts::metadata::Timestamp;
 use work_application::{ClockPort, IdGeneratorPort, PortError};
 use work_contracts::{
-    BacklogId, ChildWorkItemId, DependencyChangeId, ProjectId, ProjectMemberId, PromoteDecisionId,
-    PromoteResultId, ResultId, WorkBlockerId, WorkDependencyId, WorkItemId, WorkOutboxId,
-    WorkTraceId,
+    BacklogId, ChildWorkItemId, DependencyChangeId, IterationChangeId, IterationCommitmentId,
+    IterationId, ProjectId, ProjectMemberId, PromoteDecisionId, PromoteResultId, ResultId,
+    WorkBlockerId, WorkDependencyId, WorkItemId, WorkOutboxId, WorkTraceId,
 };
 
 /// Deterministic id generator for P0 fake adapters and tests.
@@ -26,8 +26,11 @@ struct Counters {
     promote_result: u64,
     work_dependency: u64,
     work_blocker: u64,
+    iteration: u64,
+    iteration_commitment: u64,
     promote_decision: u64,
     dependency_change: u64,
+    iteration_change: u64,
     result: u64,
     outbox: u64,
     trace: u64,
@@ -101,6 +104,21 @@ impl IdGeneratorPort for DeterministicWorkIdGenerator {
         Ok(WorkBlockerId(format!("blocker-{}", counters.work_blocker)))
     }
 
+    fn next_iteration_id(&self) -> Result<IterationId, PortError> {
+        let mut counters = self.counters.lock().map_err(|_| PortError::Unavailable)?;
+        counters.iteration += 1;
+        Ok(IterationId(format!("iteration-{}", counters.iteration)))
+    }
+
+    fn next_iteration_commitment_id(&self) -> Result<IterationCommitmentId, PortError> {
+        let mut counters = self.counters.lock().map_err(|_| PortError::Unavailable)?;
+        counters.iteration_commitment += 1;
+        Ok(IterationCommitmentId(format!(
+            "iteration-commitment-{}",
+            counters.iteration_commitment
+        )))
+    }
+
     fn next_promote_decision_id(&self) -> Result<PromoteDecisionId, PortError> {
         let mut counters = self.counters.lock().map_err(|_| PortError::Unavailable)?;
         counters.promote_decision += 1;
@@ -116,6 +134,15 @@ impl IdGeneratorPort for DeterministicWorkIdGenerator {
         Ok(DependencyChangeId(format!(
             "dependency-change-{}",
             counters.dependency_change
+        )))
+    }
+
+    fn next_iteration_change_id(&self) -> Result<IterationChangeId, PortError> {
+        let mut counters = self.counters.lock().map_err(|_| PortError::Unavailable)?;
+        counters.iteration_change += 1;
+        Ok(IterationChangeId(format!(
+            "iteration-change-{}",
+            counters.iteration_change
         )))
     }
 

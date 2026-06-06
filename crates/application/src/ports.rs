@@ -7,16 +7,18 @@ use serde::{Deserialize, Serialize};
 use crate::UnitOfWorkHandle;
 use work_contracts::{
     BacklogRef, DependencyOrBlockerRef, DerivedWorkViewRef, ExternalEvidenceRef,
-    ExternalSourceSummary, FormalWorkRef, GlobalMemberRef, OutboxFailureReason,
-    OutboxPublicationRef, OutboxRetryReason, ProjectMemberId, ProjectMemberRef, ProjectOwnerRef,
-    ProjectRef, PromoteResultRef, SourceWorkRef, WorkAuditSubjectRef, WorkBlockerId,
-    WorkBlockerRef, WorkDependencyId, WorkDependencyRef, WorkOutboxId, WorkTruthCursor,
+    ExternalSourceSummary, FormalWorkRef, GlobalMemberRef, IterationChangeId,
+    IterationCommitmentId, IterationRef, OutboxFailureReason, OutboxPublicationRef,
+    OutboxRetryReason, ProcessTimeboxRef, ProcessTimeboxSummary, ProjectMemberId, ProjectMemberRef,
+    ProjectOwnerRef, ProjectRef, PromoteResultRef, SourceWorkRef, WorkAuditSubjectRef,
+    WorkBlockerId, WorkBlockerRef, WorkDependencyId, WorkDependencyRef, WorkOutboxId,
+    WorkTruthCursor,
 };
 use work_domain::{
-    Backlog, ChildWorkItem, DependencyChangeRecord, DependencyGraphSnapshot,
-    MemberCapabilitySnapshot, PendingPromoteIntake, ProjectMember, PromoteDecisionRecord,
-    PromoteResult, TraceHandoffMarker, WorkAuditTrail, WorkBlocker, WorkDependency, WorkItem,
-    WorkOutboxRecord, WorkTraceRecord,
+    Backlog, ChildWorkItem, DependencyChangeRecord, DependencyGraphSnapshot, Iteration,
+    IterationChangeRecord, IterationCommitment, MemberCapabilitySnapshot, PendingPromoteIntake,
+    ProjectMember, PromoteDecisionRecord, PromoteResult, TraceHandoffMarker, WorkAuditTrail,
+    WorkBlocker, WorkDependency, WorkItem, WorkOutboxRecord, WorkTraceRecord,
 };
 
 /// A repository page returned before public query mapping.
@@ -90,6 +92,15 @@ pub struct EvidenceResolution {
     pub verified_state: work_contracts::EvidenceVerifiedState,
     /// Reference-resolution state returned by the resolver.
     pub reference_state: work_domain::ReferenceResolutionState,
+}
+
+/// Safe process timebox summary returned by the process resolver.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProcessTimeboxResolution {
+    /// Stable process timebox ref accepted by the resolver.
+    pub timebox_ref: ProcessTimeboxRef,
+    /// Safe process summary used by iteration validation.
+    pub summary: ProcessTimeboxSummary,
 }
 
 /// Repository-loaded formal work truth.
@@ -269,6 +280,12 @@ pub trait WorkItemRepository: Send + Sync {
         work_ref: FormalWorkRef,
     ) -> Result<Option<FormalWorkRecord>, RepositoryError>;
 
+    /// Loads a formal work record and version for immediate save paths.
+    async fn get_formal_work_with_version(
+        &self,
+        work_ref: FormalWorkRef,
+    ) -> Result<Option<(FormalWorkRecord, Version)>, RepositoryError>;
+
     /// Loads project/backlog/member scope for one formal work reference.
     async fn get_formal_work_scope(
         &self,
@@ -427,6 +444,65 @@ pub trait ReferenceSnapshotRepository: Send + Sync {
     ) -> Result<Version, RepositoryError>;
 }
 
+/// Stores Work-owned iteration and commitment truth.
+#[async_trait]
+pub trait IterationRepository: Send + Sync {
+    /// Loads one iteration by Work identity.
+    async fn get_iteration(
+        &self,
+        iteration_ref: IterationRef,
+    ) -> Result<Option<Iteration>, RepositoryError>;
+
+    /// Loads the current commitment for one iteration.
+    async fn get_commitment(
+        &self,
+        iteration_ref: IterationRef,
+    ) -> Result<Option<IterationCommitment>, RepositoryError>;
+
+    /// Loads the current commitment and version for immediate save paths.
+    async fn get_commitment_with_version(
+        &self,
+        iteration_ref: IterationRef,
+    ) -> Result<Option<(IterationCommitment, Version)>, RepositoryError>;
+
+    /// Lists iterations for one project.
+    async fn list_by_project(
+        &self,
+        project_ref: ProjectRef,
+        page: PageRequest,
+    ) -> Result<Page<Iteration>, RepositoryError>;
+
+    /// Creates one iteration inside the current unit of work.
+    async fn create_iteration(
+        &self,
+        iteration: Iteration,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError>;
+
+    /// Saves one iteration lifecycle change inside the current unit of work.
+    async fn save_iteration(
+        &self,
+        iteration: Iteration,
+        expected_version: Version,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError>;
+
+    /// Creates or replaces one iteration commitment inside the current unit of work.
+    async fn save_commitment(
+        &self,
+        commitment: IterationCommitment,
+        expected_version: Option<Version>,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError>;
+
+    /// Appends one iteration history record inside the current unit of work.
+    async fn append_change(
+        &self,
+        change: IterationChangeRecord,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<(), RepositoryError>;
+}
+
 /// Stores Work trace and audit records.
 #[async_trait]
 pub trait AuditRepository: Send + Sync {
@@ -551,6 +627,16 @@ pub trait EvidenceResolverPort: Send + Sync {
     ) -> Result<EvidenceResolution, PortError>;
 }
 
+/// Resolves process timebox summaries from the process boundary.
+#[async_trait]
+pub trait ProcessTimeboxResolverPort: Send + Sync {
+    /// Resolves one process timebox ref into a safe summary.
+    async fn resolve_timebox(
+        &self,
+        timebox_ref: ProcessTimeboxRef,
+    ) -> Result<ProcessTimeboxResolution, PortError>;
+}
+
 /// Generates Work-owned identifiers.
 pub trait IdGeneratorPort: Send + Sync {
     /// Generates a project id.
@@ -577,11 +663,20 @@ pub trait IdGeneratorPort: Send + Sync {
     /// Generates a blocker id.
     fn next_work_blocker_id(&self) -> Result<WorkBlockerId, PortError>;
 
+    /// Generates an iteration id.
+    fn next_iteration_id(&self) -> Result<work_contracts::IterationId, PortError>;
+
+    /// Generates an iteration commitment id.
+    fn next_iteration_commitment_id(&self) -> Result<IterationCommitmentId, PortError>;
+
     /// Generates a promote decision history id.
     fn next_promote_decision_id(&self) -> Result<work_contracts::PromoteDecisionId, PortError>;
 
     /// Generates a dependency or blocker history id.
     fn next_dependency_change_id(&self) -> Result<work_contracts::DependencyChangeId, PortError>;
+
+    /// Generates an iteration history id.
+    fn next_iteration_change_id(&self) -> Result<IterationChangeId, PortError>;
 
     /// Generates a result id.
     fn next_result_id(&self) -> Result<work_contracts::ResultId, PortError>;

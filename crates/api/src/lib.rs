@@ -1,22 +1,24 @@
 //! API entrypoints for the Work bounded context.
 
 use work_application::{
-    ApplicationError, DependencyBlockerService, ProjectCommandService, ProjectMemberCommandService,
-    PromoteCommandService, WorkItemCommandService,
+    ApplicationError, DependencyBlockerService, IterationCommandService, ProjectCommandService,
+    ProjectMemberCommandService, PromoteCommandService, WorkItemCommandService,
 };
 use work_contracts::{
     AssignProjectMemberRequest, BacklogCommandResult, BlockerCommandResult,
-    CreateChildWorkItemRequest, CreateProjectRequest, CreateWorkItemRequest,
-    DependencyCommandResult, LinkWorkDependencyRequest, OpenWorkBlockerRequest,
-    ProjectCommandResult, ProjectMemberCommandResult, PromoteCommandResult,
-    RequestWorkPromotionRequest, ResolveWorkBlockerRequest, ReviewWorkPromotionRequest,
-    UpdateBacklogAvailabilityRequest, UpdateProjectLifecycleRequest,
-    UpdateProjectMemberResponsibilityRequest, UpdateWorkDependencyStateRequest,
-    UpdateWorkItemLifecycleRequest, WorkCommandEnvelope, WorkItemCommandResult, WorkProtocolError,
+    CommitIterationScopeRequest, CreateChildWorkItemRequest, CreateProjectRequest,
+    CreateWorkItemRequest, DependencyCommandResult, IterationCommandResult,
+    LinkWorkDependencyRequest, OpenIterationRequest, OpenWorkBlockerRequest, ProjectCommandResult,
+    ProjectMemberCommandResult, PromoteCommandResult, RequestWorkPromotionRequest,
+    ResolveWorkBlockerRequest, ReviewWorkPromotionRequest, UpdateBacklogAvailabilityRequest,
+    UpdateIterationCommitmentRequest, UpdateIterationLifecycleRequest,
+    UpdateProjectLifecycleRequest, UpdateProjectMemberResponsibilityRequest,
+    UpdateWorkDependencyStateRequest, UpdateWorkItemLifecycleRequest, WorkCommandEnvelope,
+    WorkItemCommandResult, WorkProtocolError,
 };
 
 /// Thin command handlers that validate protocol shape and delegate to application services.
-pub struct WorkCommandHandlers<P, M, W, PR, D> {
+pub struct WorkCommandHandlers<P, M, W, PR, D, I> {
     /// Project-scoped command service.
     pub project_service: P,
     /// Project-member command service.
@@ -27,9 +29,11 @@ pub struct WorkCommandHandlers<P, M, W, PR, D> {
     pub promote_service: PR,
     /// Dependency and blocker command service.
     pub dependency_service: D,
+    /// Iteration command service.
+    pub iteration_service: I,
 }
 
-impl<P, M, W, PR, D> WorkCommandHandlers<P, M, W, PR, D> {
+impl<P, M, W, PR, D, I> WorkCommandHandlers<P, M, W, PR, D, I> {
     /// Creates a handler set for command delegation.
     pub fn new(
         project_service: P,
@@ -37,6 +41,7 @@ impl<P, M, W, PR, D> WorkCommandHandlers<P, M, W, PR, D> {
         workitem_service: W,
         promote_service: PR,
         dependency_service: D,
+        iteration_service: I,
     ) -> Self {
         Self {
             project_service,
@@ -44,6 +49,7 @@ impl<P, M, W, PR, D> WorkCommandHandlers<P, M, W, PR, D> {
             workitem_service,
             promote_service,
             dependency_service,
+            iteration_service,
         }
     }
 }
@@ -109,6 +115,19 @@ impl<
     DI,
     DC,
     DIDEM,
+    IP,
+    IB,
+    IW,
+    IITR,
+    IA,
+    IO,
+    IR,
+    IPR,
+    IU,
+    IPT,
+    II,
+    IC,
+    IIDEM,
 >
     WorkCommandHandlers<
         ProjectCommandService<P, B, A, O, R, PR, U, I, C, IDEM>,
@@ -116,6 +135,7 @@ impl<
         WorkItemCommandService<WP, WB, WPM, WW, WA, WO, WR, WPR, WU, WS, WE, WI, WC, WIDEM>,
         PromoteCommandService<PP, PB, PW, PPR, PA, PO, PRR, PPROJ, PU, PS, PI, PCC, PIDEM>,
         DependencyBlockerService<DP, DW, DA, DO, DR, DPR, DU, DE, DI, DC, DIDEM>,
+        IterationCommandService<IP, IB, IW, IITR, IA, IO, IR, IPR, IU, IPT, II, IC, IIDEM>,
     >
 where
     P: work_application::ProjectRepository,
@@ -178,6 +198,19 @@ where
     DI: work_application::IdGeneratorPort,
     DC: work_application::ClockPort,
     DIDEM: work_application::IdempotencyRepository,
+    IP: work_application::ProjectRepository,
+    IB: work_application::BacklogRepository,
+    IW: work_application::WorkItemRepository,
+    IITR: work_application::IterationRepository,
+    IA: work_application::AuditRepository,
+    IO: work_application::WorkOutboxRepository,
+    IR: work_application::CommandResultRepository,
+    IPR: work_application::ProjectionRepository,
+    IU: work_application::UnitOfWork,
+    IPT: work_application::ProcessTimeboxResolverPort,
+    II: work_application::IdGeneratorPort,
+    IC: work_application::ClockPort,
+    IIDEM: work_application::IdempotencyRepository,
 {
     /// Handles `CreateProject`.
     pub async fn handle_create_project(
@@ -332,6 +365,50 @@ where
             .await
             .map_err(ApplicationError::into_protocol_error)
     }
+
+    /// Handles `OpenIteration`.
+    pub async fn handle_open_iteration(
+        &self,
+        envelope: WorkCommandEnvelope<OpenIterationRequest>,
+    ) -> Result<IterationCommandResult, WorkProtocolError> {
+        self.iteration_service
+            .open_iteration(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
+
+    /// Handles `CommitIterationScope`.
+    pub async fn handle_commit_iteration_scope(
+        &self,
+        envelope: WorkCommandEnvelope<CommitIterationScopeRequest>,
+    ) -> Result<IterationCommandResult, WorkProtocolError> {
+        self.iteration_service
+            .commit_iteration_scope(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
+
+    /// Handles `UpdateIterationCommitment`.
+    pub async fn handle_update_iteration_commitment(
+        &self,
+        envelope: WorkCommandEnvelope<UpdateIterationCommitmentRequest>,
+    ) -> Result<IterationCommandResult, WorkProtocolError> {
+        self.iteration_service
+            .update_iteration_commitment(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
+
+    /// Handles `UpdateIterationLifecycle`.
+    pub async fn handle_update_iteration_lifecycle(
+        &self,
+        envelope: WorkCommandEnvelope<UpdateIterationLifecycleRequest>,
+    ) -> Result<IterationCommandResult, WorkProtocolError> {
+        self.iteration_service
+            .update_iteration_lifecycle(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
 }
 
 #[cfg(test)]
@@ -341,22 +418,24 @@ mod tests {
     use super::WorkCommandHandlers;
     use work_application::{
         BacklogRepository, CommandResultRepository, DependencyBlockerService,
-        ProjectCommandService, ProjectMemberCommandService, PromoteCommandService,
-        WorkItemCommandService,
+        IterationCommandService, ProjectCommandService, ProjectMemberCommandService,
+        PromoteCommandService, WorkItemCommandService,
     };
     use work_contracts::metadata::fixtures;
     use work_contracts::{
         AssignProjectMemberRequest, BacklogAvailabilityTarget, BacklogState,
-        CreateChildWorkItemRequest, CreateProjectRequest, CreateWorkItemRequest, DependencyTarget,
-        DerivedWorkViewRef, IdempotencyResultView, LinkWorkDependencyRequest,
-        OpenWorkBlockerRequest, ProjectLifecycleReason, ProjectLifecycleReasonKind,
-        ProjectLifecycleState, ProjectLifecycleTarget, ProjectMemberReason,
-        ProjectMemberReasonKind, ProjectMemberResponsibilityState, PromoteResultState,
-        PromoteReviewDecision, RequestWorkPromotionRequest, ResolveWorkBlockerRequest,
-        ResponsibilityTarget, ReviewWorkPromotionRequest, UpdateBacklogAvailabilityRequest,
-        UpdateProjectLifecycleRequest, UpdateProjectMemberResponsibilityRequest,
-        UpdateWorkDependencyStateRequest, UpdateWorkItemLifecycleRequest, WorkCommandEnvelope,
-        WorkItemState, WorkProtocolError,
+        CommitIterationScopeRequest, CommitmentState, CreateChildWorkItemRequest,
+        CreateProjectRequest, CreateWorkItemRequest, DependencyTarget, DerivedWorkViewRef,
+        IdempotencyResultView, IterationLifecycleTarget, IterationState, LinkWorkDependencyRequest,
+        OpenIterationRequest, OpenWorkBlockerRequest, ProjectLifecycleReason,
+        ProjectLifecycleReasonKind, ProjectLifecycleState, ProjectLifecycleTarget,
+        ProjectMemberReason, ProjectMemberReasonKind, ProjectMemberResponsibilityState,
+        PromoteResultState, PromoteReviewDecision, RequestWorkPromotionRequest,
+        ResolveWorkBlockerRequest, ResponsibilityTarget, ReviewWorkPromotionRequest,
+        UpdateBacklogAvailabilityRequest, UpdateIterationCommitmentRequest,
+        UpdateIterationLifecycleRequest, UpdateProjectLifecycleRequest,
+        UpdateProjectMemberResponsibilityRequest, UpdateWorkDependencyStateRequest,
+        UpdateWorkItemLifecycleRequest, WorkCommandEnvelope, WorkItemState, WorkProtocolError,
     };
     use work_infra::clock_id::{DeterministicWorkIdGenerator, FixedClock};
     use work_infra::command_result_store::InMemoryCommandResultRepository;
@@ -365,7 +444,8 @@ mod tests {
     use work_infra::repositories::InMemoryWorkStores;
     use work_infra::source_resolvers::{
         EvidenceResolverOutcome, FakeEvidenceResolverPort, FakeMemberReferencePort,
-        FakeSourceWorkResolverPort, MemberResolverOutcome, SourceResolverOutcome,
+        FakeProcessTimeboxResolverPort, FakeSourceWorkResolverPort, MemberResolverOutcome,
+        ProcessTimeboxResolverOutcome, SourceResolverOutcome,
     };
 
     type TestHandlers = WorkCommandHandlers<
@@ -439,9 +519,24 @@ mod tests {
             FixedClock,
             InMemoryIdempotencyRepository,
         >,
+        IterationCommandService<
+            InMemoryWorkStores,
+            InMemoryWorkStores,
+            InMemoryWorkStores,
+            InMemoryWorkStores,
+            InMemoryWorkStores,
+            InMemoryWorkOutboxRepository,
+            InMemoryCommandResultRepository,
+            InMemoryWorkStores,
+            InMemoryWorkStores,
+            FakeProcessTimeboxResolverPort,
+            DeterministicWorkIdGenerator,
+            FixedClock,
+            InMemoryIdempotencyRepository,
+        >,
     >;
 
-    fn build_handlers() -> (
+    fn build_handlers_with_process() -> (
         TestHandlers,
         InMemoryWorkStores,
         InMemoryWorkOutboxRepository,
@@ -450,6 +545,7 @@ mod tests {
         FakeMemberReferencePort,
         FakeSourceWorkResolverPort,
         FakeEvidenceResolverPort,
+        FakeProcessTimeboxResolverPort,
     ) {
         let stores = InMemoryWorkStores::new();
         let outbox = InMemoryWorkOutboxRepository::new();
@@ -458,6 +554,7 @@ mod tests {
         let member_refs = FakeMemberReferencePort::new();
         let source_refs = FakeSourceWorkResolverPort::new();
         let evidence_refs = FakeEvidenceResolverPort::new();
+        let process_refs = FakeProcessTimeboxResolverPort::new();
         let ids = DeterministicWorkIdGenerator::new();
         let clock = FixedClock::new(Timestamp::new("2026-06-05T09:00:00Z"));
         let project_service = ProjectCommandService {
@@ -530,6 +627,21 @@ mod tests {
             clock: clock.clone(),
             idempotency: idempotency.clone(),
         };
+        let iteration_service = IterationCommandService {
+            project_repo: stores.clone(),
+            backlog_repo: stores.clone(),
+            work_repo: stores.clone(),
+            iteration_repo: stores.clone(),
+            audit_repo: stores.clone(),
+            outbox_repo: outbox.clone(),
+            command_results: results.clone(),
+            projection_repo: stores.clone(),
+            unit_of_work: stores.clone(),
+            timebox_resolver: process_refs.clone(),
+            ids: ids.clone(),
+            clock: clock.clone(),
+            idempotency: idempotency.clone(),
+        };
         (
             WorkCommandHandlers::new(
                 project_service,
@@ -537,7 +649,42 @@ mod tests {
                 workitem_service,
                 promote_service,
                 dependency_service,
+                iteration_service,
             ),
+            stores,
+            outbox,
+            results,
+            idempotency,
+            member_refs,
+            source_refs,
+            evidence_refs,
+            process_refs,
+        )
+    }
+
+    fn build_handlers() -> (
+        TestHandlers,
+        InMemoryWorkStores,
+        InMemoryWorkOutboxRepository,
+        InMemoryCommandResultRepository,
+        InMemoryIdempotencyRepository,
+        FakeMemberReferencePort,
+        FakeSourceWorkResolverPort,
+        FakeEvidenceResolverPort,
+    ) {
+        let (
+            handlers,
+            stores,
+            outbox,
+            results,
+            idempotency,
+            member_refs,
+            source_refs,
+            evidence_refs,
+            _process_refs,
+        ) = build_handlers_with_process();
+        (
+            handlers,
             stores,
             outbox,
             results,
@@ -598,6 +745,68 @@ mod tests {
             .await
             .expect("assign should succeed");
         (created, assigned)
+    }
+
+    async fn create_root_work(
+        handlers: &TestHandlers,
+        project_ref: work_contracts::ProjectRef,
+        assignee_ref: work_contracts::ProjectMemberRef,
+        source_refs: &FakeSourceWorkResolverPort,
+        key: &str,
+        title: &str,
+    ) -> work_contracts::WorkItemCommandResult {
+        source_refs.seed(
+            fixtures::source_work_ref(),
+            SourceResolverOutcome::Success {
+                has_external_body: false,
+            },
+        );
+        handlers
+            .handle_create_work_item(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata(key),
+                command: CreateWorkItemRequest {
+                    project_ref,
+                    work_intent: work_contracts::FormalWorkIntent {
+                        assignee_ref,
+                        title: fixtures::work_title(title),
+                        ..fixtures::formal_work_intent()
+                    },
+                    source_ref: fixtures::source_work_ref(),
+                },
+            })
+            .await
+            .expect("create work should succeed")
+    }
+
+    async fn create_child_work(
+        handlers: &TestHandlers,
+        parent_ref: work_contracts::FormalWorkRef,
+        assignee_ref: work_contracts::ProjectMemberRef,
+        source_refs: &FakeSourceWorkResolverPort,
+        key: &str,
+    ) -> work_contracts::WorkItemCommandResult {
+        source_refs.seed(
+            fixtures::source_work_ref(),
+            SourceResolverOutcome::Success {
+                has_external_body: false,
+            },
+        );
+        handlers
+            .handle_create_child_work_item(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata(key),
+                command: CreateChildWorkItemRequest {
+                    parent_ref,
+                    work_intent: work_contracts::FormalWorkIntent {
+                        assignee_ref,
+                        ..fixtures::child_work_intent()
+                    },
+                    source_ref: fixtures::source_work_ref(),
+                },
+            })
+            .await
+            .expect("create child work should succeed")
     }
 
     #[tokio::test]
@@ -1979,6 +2188,684 @@ mod tests {
         assert_eq!(stores.stale_mark_count(), 3);
         assert_eq!(stores.promote_decisions().len(), 1);
         assert_eq!(outbox.count(), 5);
+    }
+
+    #[tokio::test]
+    async fn tc_work_iter_001_open_iteration_validates_process_timebox_summary_and_duplicate() {
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            _member_refs,
+            _source_refs,
+            _evidence_refs,
+            process_refs,
+        ) = build_handlers_with_process();
+        let created = create_project(&handlers, "idem-iter-001-project").await;
+        process_refs.seed(
+            fixtures::process_timebox_ref(),
+            ProcessTimeboxResolverOutcome::Resolved {
+                project_ref: created.project_ref.clone(),
+                can_open_iteration: true,
+                summary: Some(fixtures::safe_summary("iteration window")),
+                source_digest: Some(work_contracts::SourceDigest("timebox-digest-1".to_owned())),
+            },
+        );
+
+        let envelope = WorkCommandEnvelope {
+            actor: fixtures::actor_context(),
+            metadata: fixtures::command_metadata("idem-iter-001-open"),
+            command: OpenIterationRequest {
+                project_ref: created.project_ref.clone(),
+                timebox_ref: fixtures::process_timebox_ref(),
+            },
+        };
+        let opened = handlers
+            .handle_open_iteration(envelope.clone())
+            .await
+            .expect("open iteration should succeed");
+        assert_eq!(opened.iteration_state, IterationState::Planning);
+        assert_eq!(opened.commitment_state, None);
+        assert_eq!(opened.receipt.idempotency, IdempotencyResultView::Applied);
+
+        let duplicate = handlers
+            .handle_open_iteration(envelope)
+            .await
+            .expect("duplicate open should replay stored result");
+        assert_eq!(duplicate.iteration_ref, opened.iteration_ref);
+        assert_eq!(duplicate.receipt.result_ref, opened.receipt.result_ref);
+        assert_eq!(
+            duplicate.receipt.idempotency,
+            IdempotencyResultView::Duplicate
+        );
+
+        process_refs.seed(
+            work_contracts::ProcessTimeboxRef("process/timeboxes/mismatch".to_owned()),
+            ProcessTimeboxResolverOutcome::Resolved {
+                project_ref: work_contracts::ProjectRef {
+                    project_id: work_contracts::ProjectId("project-mismatch".to_owned()),
+                },
+                can_open_iteration: true,
+                summary: Some(fixtures::safe_summary("mismatch")),
+                source_digest: Some(work_contracts::SourceDigest("timebox-digest-2".to_owned())),
+            },
+        );
+        let mismatch = handlers
+            .handle_open_iteration(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-iter-001-mismatch"),
+                command: OpenIterationRequest {
+                    project_ref: created.project_ref.clone(),
+                    timebox_ref: work_contracts::ProcessTimeboxRef(
+                        "process/timeboxes/mismatch".to_owned(),
+                    ),
+                },
+            })
+            .await
+            .expect_err("project mismatch should fail");
+        assert_eq!(mismatch, WorkProtocolError::ExternalReferenceUnresolved);
+
+        process_refs.seed(
+            work_contracts::ProcessTimeboxRef("process/timeboxes/no-open".to_owned()),
+            ProcessTimeboxResolverOutcome::Resolved {
+                project_ref: created.project_ref.clone(),
+                can_open_iteration: false,
+                summary: Some(fixtures::safe_summary("closed window")),
+                source_digest: Some(work_contracts::SourceDigest("timebox-digest-3".to_owned())),
+            },
+        );
+        let cannot_open = handlers
+            .handle_open_iteration(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-iter-001-no-open"),
+                command: OpenIterationRequest {
+                    project_ref: created.project_ref.clone(),
+                    timebox_ref: work_contracts::ProcessTimeboxRef(
+                        "process/timeboxes/no-open".to_owned(),
+                    ),
+                },
+            })
+            .await
+            .expect_err("timebox gate should fail");
+        assert_eq!(cannot_open, WorkProtocolError::ExternalReferenceUnresolved);
+
+        process_refs.seed(
+            work_contracts::ProcessTimeboxRef("process/timeboxes/no-digest".to_owned()),
+            ProcessTimeboxResolverOutcome::Resolved {
+                project_ref: created.project_ref.clone(),
+                can_open_iteration: true,
+                summary: Some(fixtures::safe_summary("missing digest")),
+                source_digest: None,
+            },
+        );
+        let missing_digest = handlers
+            .handle_open_iteration(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-iter-001-no-digest"),
+                command: OpenIterationRequest {
+                    project_ref: created.project_ref.clone(),
+                    timebox_ref: work_contracts::ProcessTimeboxRef(
+                        "process/timeboxes/no-digest".to_owned(),
+                    ),
+                },
+            })
+            .await
+            .expect_err("missing digest should fail");
+        assert_eq!(
+            missing_digest,
+            WorkProtocolError::ExternalReferenceUnresolved
+        );
+
+        assert_eq!(stores.trace_count(), 2);
+        assert_eq!(stores.stale_mark_count(), 2);
+        assert_eq!(outbox.count(), 2);
+    }
+
+    #[tokio::test]
+    async fn tc_work_iter_002_commit_scope_marks_root_and_child_work_committed() {
+        let (
+            handlers,
+            stores,
+            outbox,
+            results,
+            _idempotency,
+            member_refs,
+            source_refs,
+            _evidence_refs,
+            process_refs,
+        ) = build_handlers_with_process();
+        let (created, assigned) = prepare_formal_work_context(&handlers, &member_refs).await;
+        let root = create_root_work(
+            &handlers,
+            created.project_ref.clone(),
+            assigned.project_member_ref.clone(),
+            &source_refs,
+            "idem-iter-002-root",
+            "Root work",
+        )
+        .await;
+        let child = create_child_work(
+            &handlers,
+            root.work_ref.clone(),
+            assigned.project_member_ref.clone(),
+            &source_refs,
+            "idem-iter-002-child",
+        )
+        .await;
+        process_refs.seed(
+            fixtures::process_timebox_ref(),
+            ProcessTimeboxResolverOutcome::Resolved {
+                project_ref: created.project_ref.clone(),
+                can_open_iteration: true,
+                summary: Some(fixtures::safe_summary("commit scope timebox")),
+                source_digest: Some(work_contracts::SourceDigest("timebox-digest-4".to_owned())),
+            },
+        );
+        let opened = handlers
+            .handle_open_iteration(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-iter-002-open"),
+                command: OpenIterationRequest {
+                    project_ref: created.project_ref.clone(),
+                    timebox_ref: fixtures::process_timebox_ref(),
+                },
+            })
+            .await
+            .expect("open iteration should succeed");
+
+        let committed = handlers
+            .handle_commit_iteration_scope(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-iter-002-commit"),
+                command: CommitIterationScopeRequest {
+                    iteration_ref: opened.iteration_ref.clone(),
+                    candidate_work_refs: work_contracts::FormalWorkRefSet {
+                        refs: vec![root.work_ref.clone(), child.work_ref.clone()],
+                    },
+                    expected_iteration_version: 1,
+                },
+            })
+            .await
+            .expect("commit iteration scope should succeed");
+        assert_eq!(committed.iteration_state, IterationState::Committed);
+        assert_eq!(committed.commitment_state, Some(CommitmentState::Committed));
+        assert!(
+            results
+                .get_result(committed.receipt.result_ref.clone())
+                .await
+                .expect("stored iteration result should load")
+                .is_some()
+        );
+
+        let (stored_iteration, iteration_version) = stores
+            .iteration_snapshot(&opened.iteration_ref)
+            .expect("iteration should be stored");
+        assert_eq!(stored_iteration.iteration_state, IterationState::Committed);
+        assert_eq!(iteration_version, 2);
+        let (stored_commitment, commitment_version) = stores
+            .commitment_snapshot(&opened.iteration_ref)
+            .expect("commitment should be stored");
+        assert_eq!(
+            stored_commitment.commitment_state,
+            CommitmentState::Committed
+        );
+        assert_eq!(commitment_version, 1);
+        let (stored_root, _) = stores
+            .work_item_snapshot(&root.work_ref)
+            .expect("root should be stored");
+        assert_eq!(stored_root.work_state, WorkItemState::Committed);
+        let (stored_child, _) = stores
+            .child_work_item_snapshot(&child.work_ref)
+            .expect("child should be stored");
+        assert_eq!(stored_child.work_state, WorkItemState::Committed);
+
+        let stale = stores
+            .stale_marks()
+            .last()
+            .expect("commit stale mark should exist")
+            .0
+            .clone();
+        assert_eq!(
+            stale,
+            vec![
+                DerivedWorkViewRef::project_board(created.project_ref),
+                DerivedWorkViewRef::iteration_summary(opened.iteration_ref),
+                DerivedWorkViewRef::member_work(assigned.project_member_ref),
+            ]
+        );
+        assert_eq!(stores.trace_count(), 6);
+        assert_eq!(stores.stale_mark_count(), 6);
+        assert_eq!(outbox.count(), 6);
+    }
+
+    #[tokio::test]
+    async fn tc_work_iter_003_update_commitment_rejects_non_member_work_and_updates_state() {
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            member_refs,
+            source_refs,
+            _evidence_refs,
+            process_refs,
+        ) = build_handlers_with_process();
+        let (created, assigned) = prepare_formal_work_context(&handlers, &member_refs).await;
+        let root = create_root_work(
+            &handlers,
+            created.project_ref.clone(),
+            assigned.project_member_ref.clone(),
+            &source_refs,
+            "idem-iter-003-root",
+            "Root work",
+        )
+        .await;
+        let child = create_child_work(
+            &handlers,
+            root.work_ref.clone(),
+            assigned.project_member_ref.clone(),
+            &source_refs,
+            "idem-iter-003-child",
+        )
+        .await;
+        process_refs.seed(
+            fixtures::process_timebox_ref(),
+            ProcessTimeboxResolverOutcome::Resolved {
+                project_ref: created.project_ref.clone(),
+                can_open_iteration: true,
+                summary: Some(fixtures::safe_summary("update commitment timebox")),
+                source_digest: Some(work_contracts::SourceDigest("timebox-digest-5".to_owned())),
+            },
+        );
+        let opened = handlers
+            .handle_open_iteration(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-iter-003-open"),
+                command: OpenIterationRequest {
+                    project_ref: created.project_ref.clone(),
+                    timebox_ref: fixtures::process_timebox_ref(),
+                },
+            })
+            .await
+            .expect("open iteration should succeed");
+        handlers
+            .handle_commit_iteration_scope(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-iter-003-commit"),
+                command: CommitIterationScopeRequest {
+                    iteration_ref: opened.iteration_ref.clone(),
+                    candidate_work_refs: work_contracts::FormalWorkRefSet {
+                        refs: vec![root.work_ref.clone()],
+                    },
+                    expected_iteration_version: 1,
+                },
+            })
+            .await
+            .expect("commit scope should succeed");
+
+        let changed = handlers
+            .handle_update_iteration_commitment(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-iter-003-change"),
+                command: UpdateIterationCommitmentRequest {
+                    iteration_ref: opened.iteration_ref.clone(),
+                    change_set: work_contracts::IterationCommitmentChangeSet {
+                        add_work_refs: vec![child.work_ref.clone()],
+                        remove_work_refs: vec![root.work_ref.clone()],
+                    },
+                    reason: fixtures::iteration_commitment_changed_reason(),
+                    expected_commitment_version: 1,
+                },
+            })
+            .await
+            .expect("commitment change should succeed");
+        assert_eq!(changed.iteration_state, IterationState::Committed);
+        assert_eq!(changed.commitment_state, Some(CommitmentState::Changed));
+        let (stored_commitment, version) = stores
+            .commitment_snapshot(&opened.iteration_ref)
+            .expect("commitment should be stored");
+        assert_eq!(stored_commitment.commitment_state, CommitmentState::Changed);
+        assert_eq!(version, 2);
+        assert_eq!(
+            stored_commitment.committed_work_refs.refs,
+            vec![child.work_ref.clone()]
+        );
+        let stale = stores
+            .stale_marks()
+            .last()
+            .expect("commitment stale mark should exist")
+            .0
+            .clone();
+        assert_eq!(
+            stale,
+            vec![
+                DerivedWorkViewRef::project_board(created.project_ref.clone()),
+                DerivedWorkViewRef::iteration_summary(opened.iteration_ref.clone()),
+                DerivedWorkViewRef::member_work(assigned.project_member_ref.clone()),
+            ]
+        );
+
+        let invalid = handlers
+            .handle_update_iteration_commitment(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-iter-003-invalid"),
+                command: UpdateIterationCommitmentRequest {
+                    iteration_ref: opened.iteration_ref,
+                    change_set: work_contracts::IterationCommitmentChangeSet {
+                        add_work_refs: vec![work_contracts::FormalWorkRef::WorkItem(
+                            work_contracts::WorkItemId("work-item-missing".to_owned()),
+                        )],
+                        remove_work_refs: Vec::new(),
+                    },
+                    reason: fixtures::iteration_commitment_changed_reason(),
+                    expected_commitment_version: 2,
+                },
+            })
+            .await
+            .expect_err("non-member work should fail");
+        assert_eq!(invalid, WorkProtocolError::DomainRejected);
+        assert_eq!(stores.trace_count(), 7);
+        assert_eq!(stores.stale_mark_count(), 7);
+        assert_eq!(outbox.count(), 7);
+    }
+
+    #[tokio::test]
+    async fn tc_work_iter_004_lifecycle_validates_reason_shape_and_closes_commitment() {
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            member_refs,
+            source_refs,
+            _evidence_refs,
+            process_refs,
+        ) = build_handlers_with_process();
+        let (created, assigned) = prepare_formal_work_context(&handlers, &member_refs).await;
+        let root = create_root_work(
+            &handlers,
+            created.project_ref.clone(),
+            assigned.project_member_ref.clone(),
+            &source_refs,
+            "idem-iter-004-root",
+            "Lifecycle root",
+        )
+        .await;
+        process_refs.seed(
+            fixtures::process_timebox_ref(),
+            ProcessTimeboxResolverOutcome::Resolved {
+                project_ref: created.project_ref.clone(),
+                can_open_iteration: true,
+                summary: Some(fixtures::safe_summary("lifecycle timebox")),
+                source_digest: Some(work_contracts::SourceDigest("timebox-digest-6".to_owned())),
+            },
+        );
+        let opened = handlers
+            .handle_open_iteration(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-iter-004-open"),
+                command: OpenIterationRequest {
+                    project_ref: created.project_ref.clone(),
+                    timebox_ref: fixtures::process_timebox_ref(),
+                },
+            })
+            .await
+            .expect("open iteration should succeed");
+        handlers
+            .handle_commit_iteration_scope(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-iter-004-commit"),
+                command: CommitIterationScopeRequest {
+                    iteration_ref: opened.iteration_ref.clone(),
+                    candidate_work_refs: work_contracts::FormalWorkRefSet {
+                        refs: vec![root.work_ref],
+                    },
+                    expected_iteration_version: 1,
+                },
+            })
+            .await
+            .expect("commit scope should succeed");
+
+        let wrong_reason = handlers
+            .handle_update_iteration_lifecycle(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-iter-004-wrong-reason"),
+                command: UpdateIterationLifecycleRequest {
+                    iteration_ref: opened.iteration_ref.clone(),
+                    target: IterationLifecycleTarget::InProgress,
+                    change_reason: None,
+                    close_reason: Some(fixtures::iteration_closed_reason()),
+                    expected_version: 2,
+                },
+            })
+            .await
+            .expect_err("wrong reason shape should fail");
+        assert_eq!(wrong_reason, WorkProtocolError::InvalidRequest);
+
+        let started = handlers
+            .handle_update_iteration_lifecycle(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-iter-004-start"),
+                command: UpdateIterationLifecycleRequest {
+                    iteration_ref: opened.iteration_ref.clone(),
+                    target: IterationLifecycleTarget::InProgress,
+                    change_reason: Some(fixtures::iteration_started_reason()),
+                    close_reason: None,
+                    expected_version: 2,
+                },
+            })
+            .await
+            .expect("start should succeed");
+        assert_eq!(started.iteration_state, IterationState::InProgress);
+        assert_eq!(started.commitment_state, Some(CommitmentState::Committed));
+        let start_stale = stores
+            .stale_marks()
+            .last()
+            .expect("start stale mark should exist")
+            .0
+            .clone();
+        assert_eq!(
+            start_stale,
+            vec![
+                DerivedWorkViewRef::project_board(created.project_ref.clone()),
+                DerivedWorkViewRef::iteration_summary(opened.iteration_ref.clone()),
+                DerivedWorkViewRef::member_work(assigned.project_member_ref.clone()),
+            ]
+        );
+
+        let closed = handlers
+            .handle_update_iteration_lifecycle(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-iter-004-close"),
+                command: UpdateIterationLifecycleRequest {
+                    iteration_ref: opened.iteration_ref.clone(),
+                    target: IterationLifecycleTarget::Closed,
+                    change_reason: None,
+                    close_reason: Some(fixtures::iteration_closed_reason()),
+                    expected_version: 3,
+                },
+            })
+            .await
+            .expect("close should succeed");
+        assert_eq!(closed.iteration_state, IterationState::Closed);
+        assert_eq!(closed.commitment_state, Some(CommitmentState::Closed));
+        let close_stale = stores
+            .stale_marks()
+            .last()
+            .expect("close stale mark should exist")
+            .0
+            .clone();
+        assert_eq!(
+            close_stale,
+            vec![
+                DerivedWorkViewRef::project_board(created.project_ref.clone()),
+                DerivedWorkViewRef::iteration_summary(opened.iteration_ref.clone()),
+                DerivedWorkViewRef::member_work(assigned.project_member_ref),
+            ]
+        );
+        assert_eq!(stores.iteration_changes().len(), 1);
+        let (stored_commitment, commitment_version) = stores
+            .commitment_snapshot(&opened.iteration_ref)
+            .expect("closed commitment should be stored");
+        assert_eq!(stored_commitment.commitment_state, CommitmentState::Closed);
+        assert_eq!(commitment_version, 2);
+        let (stored_iteration, iteration_version) = stores
+            .iteration_snapshot(&opened.iteration_ref)
+            .expect("closed iteration should be stored");
+        assert_eq!(stored_iteration.iteration_state, IterationState::Closed);
+        assert_eq!(iteration_version, 4);
+
+        let cancelled = handlers
+            .handle_update_iteration_lifecycle(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-iter-004-cancel"),
+                command: UpdateIterationLifecycleRequest {
+                    iteration_ref: handlers
+                        .handle_open_iteration(WorkCommandEnvelope {
+                            actor: fixtures::actor_context(),
+                            metadata: fixtures::command_metadata("idem-iter-004-open-cancel"),
+                            command: OpenIterationRequest {
+                                project_ref: created.project_ref.clone(),
+                                timebox_ref: fixtures::process_timebox_ref(),
+                            },
+                        })
+                        .await
+                        .expect("second open iteration should succeed")
+                        .iteration_ref,
+                    target: IterationLifecycleTarget::Cancelled,
+                    change_reason: Some(fixtures::iteration_cancelled_reason()),
+                    close_reason: None,
+                    expected_version: 1,
+                },
+            })
+            .await
+            .expect("cancel should succeed");
+        assert_eq!(cancelled.iteration_state, IterationState::Cancelled);
+        assert_eq!(cancelled.commitment_state, None);
+
+        let reopen = handlers
+            .handle_update_iteration_lifecycle(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-iter-004-reopen"),
+                command: UpdateIterationLifecycleRequest {
+                    iteration_ref: opened.iteration_ref.clone(),
+                    target: IterationLifecycleTarget::InProgress,
+                    change_reason: Some(fixtures::iteration_started_reason()),
+                    close_reason: None,
+                    expected_version: 4,
+                },
+            })
+            .await
+            .expect_err("closed iteration must not reopen");
+        assert_eq!(reopen, WorkProtocolError::DomainRejected);
+        assert_eq!(stores.trace_count(), 9);
+        assert_eq!(stores.stale_mark_count(), 9);
+        assert_eq!(outbox.count(), 9);
+    }
+
+    #[tokio::test]
+    async fn tc_work_iter_005_start_requires_existing_commitment() {
+        let (
+            handlers,
+            _stores,
+            outbox,
+            _results,
+            _idempotency,
+            _member_refs,
+            _source_refs,
+            _evidence_refs,
+            process_refs,
+        ) = build_handlers_with_process();
+        let created = create_project(&handlers, "idem-iter-005-project").await;
+        process_refs.seed(
+            fixtures::process_timebox_ref(),
+            ProcessTimeboxResolverOutcome::Resolved {
+                project_ref: created.project_ref.clone(),
+                can_open_iteration: true,
+                summary: Some(fixtures::safe_summary("start requires commitment")),
+                source_digest: Some(work_contracts::SourceDigest("timebox-digest-8".to_owned())),
+            },
+        );
+        let opened = handlers
+            .handle_open_iteration(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-iter-005-open"),
+                command: OpenIterationRequest {
+                    project_ref: created.project_ref,
+                    timebox_ref: fixtures::process_timebox_ref(),
+                },
+            })
+            .await
+            .expect("open iteration should succeed");
+
+        let error = handlers
+            .handle_update_iteration_lifecycle(WorkCommandEnvelope {
+                actor: fixtures::actor_context(),
+                metadata: fixtures::command_metadata("idem-iter-005-start"),
+                command: UpdateIterationLifecycleRequest {
+                    iteration_ref: opened.iteration_ref,
+                    target: IterationLifecycleTarget::InProgress,
+                    change_reason: Some(fixtures::iteration_started_reason()),
+                    close_reason: None,
+                    expected_version: 1,
+                },
+            })
+            .await
+            .expect_err("start without commitment should fail");
+        assert_eq!(error, WorkProtocolError::DomainRejected);
+        assert_eq!(outbox.count(), 2);
+    }
+
+    #[tokio::test]
+    async fn tc_work_iter_006_duplicate_replay_and_missing_result_surface() {
+        let (
+            handlers,
+            stores,
+            outbox,
+            results,
+            _idempotency,
+            _member_refs,
+            _source_refs,
+            _evidence_refs,
+            process_refs,
+        ) = build_handlers_with_process();
+        let created = create_project(&handlers, "idem-iter-005-project").await;
+        process_refs.seed(
+            fixtures::process_timebox_ref(),
+            ProcessTimeboxResolverOutcome::Resolved {
+                project_ref: created.project_ref.clone(),
+                can_open_iteration: true,
+                summary: Some(fixtures::safe_summary("duplicate timebox")),
+                source_digest: Some(work_contracts::SourceDigest("timebox-digest-7".to_owned())),
+            },
+        );
+
+        let envelope = WorkCommandEnvelope {
+            actor: fixtures::actor_context(),
+            metadata: fixtures::command_metadata("idem-iter-005-open"),
+            command: OpenIterationRequest {
+                project_ref: created.project_ref,
+                timebox_ref: fixtures::process_timebox_ref(),
+            },
+        };
+        let first = handlers
+            .handle_open_iteration(envelope.clone())
+            .await
+            .expect("first open should succeed");
+        results.inject_missing(first.receipt.result_ref.clone());
+
+        let error = handlers
+            .handle_open_iteration(envelope)
+            .await
+            .expect_err("missing stored result should fail duplicate replay");
+        assert_eq!(error, WorkProtocolError::TemporarilyUnavailable);
+        assert_eq!(stores.trace_count(), 2);
+        assert_eq!(stores.stale_mark_count(), 2);
+        assert_eq!(outbox.count(), 2);
     }
 
     #[tokio::test]

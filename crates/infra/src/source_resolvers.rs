@@ -6,11 +6,13 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use work_application::{
     EvidenceResolution, EvidenceResolverPort, MemberCapabilitySnapshotInput, MemberReferencePort,
-    PortError, SourceWorkResolution, SourceWorkResolverPort,
+    PortError, ProcessTimeboxResolution, ProcessTimeboxResolverPort, SourceWorkResolution,
+    SourceWorkResolverPort,
 };
 use work_contracts::{
     CapabilityRefSet, EvidenceVerifiedState, ExternalEvidenceRef, ExternalSourceRef,
-    ExternalSourceSummary, ExternalSourceSystem, GlobalMemberRef, SourceWorkRef,
+    ExternalSourceSummary, ExternalSourceSystem, GlobalMemberRef, ProcessTimeboxRef,
+    ProcessTimeboxSummary, ProjectRef, SafeSummaryText, SourceDigest, SourceWorkRef,
 };
 use work_domain::ReferenceResolutionState;
 
@@ -197,6 +199,82 @@ impl EvidenceResolverPort for FakeEvidenceResolverPort {
             EvidenceResolverOutcome::Unresolved => Err(PortError::NotFound),
             EvidenceResolverOutcome::Unavailable => Err(PortError::Unavailable),
             EvidenceResolverOutcome::Rejected => Err(PortError::Rejected),
+        }
+    }
+}
+
+/// Deterministic fake process timebox resolver keyed by `ProcessTimeboxRef`.
+#[derive(Clone, Default)]
+pub struct FakeProcessTimeboxResolverPort {
+    outcomes: Arc<Mutex<HashMap<String, ProcessTimeboxResolverOutcome>>>,
+}
+
+/// Configured fake outcome for one process timebox resolver call.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProcessTimeboxResolverOutcome {
+    /// Resolver returns a safe summary.
+    Resolved {
+        /// Project the timebox binds to.
+        project_ref: ProjectRef,
+        /// Whether the timebox allows iteration opening.
+        can_open_iteration: bool,
+        /// Optional safe summary text.
+        summary: Option<SafeSummaryText>,
+        /// Optional digest to simulate missing-digest failures.
+        source_digest: Option<SourceDigest>,
+    },
+    /// External reference does not exist.
+    Unresolved,
+    /// External dependency is temporarily unavailable.
+    Unavailable,
+    /// External boundary rejects this timebox for Work use.
+    Rejected,
+}
+
+impl FakeProcessTimeboxResolverPort {
+    /// Creates an empty fake process resolver.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Seeds the outcome returned for one process timebox ref.
+    pub fn seed(&self, timebox_ref: ProcessTimeboxRef, outcome: ProcessTimeboxResolverOutcome) {
+        if let Ok(mut outcomes) = self.outcomes.lock() {
+            outcomes.insert(timebox_ref.0, outcome);
+        }
+    }
+}
+
+#[async_trait]
+impl ProcessTimeboxResolverPort for FakeProcessTimeboxResolverPort {
+    async fn resolve_timebox(
+        &self,
+        timebox_ref: ProcessTimeboxRef,
+    ) -> Result<ProcessTimeboxResolution, PortError> {
+        let outcomes = self.outcomes.lock().map_err(|_| PortError::Unavailable)?;
+        match outcomes
+            .get(&timebox_ref.0)
+            .cloned()
+            .unwrap_or(ProcessTimeboxResolverOutcome::Unresolved)
+        {
+            ProcessTimeboxResolverOutcome::Resolved {
+                project_ref,
+                can_open_iteration,
+                summary,
+                source_digest,
+            } => Ok(ProcessTimeboxResolution {
+                timebox_ref: timebox_ref.clone(),
+                summary: ProcessTimeboxSummary {
+                    timebox_ref,
+                    project_ref,
+                    can_open_iteration,
+                    summary,
+                    source_digest: source_digest.unwrap_or_else(|| SourceDigest(String::new())),
+                },
+            }),
+            ProcessTimeboxResolverOutcome::Unresolved => Err(PortError::NotFound),
+            ProcessTimeboxResolverOutcome::Unavailable => Err(PortError::Unavailable),
+            ProcessTimeboxResolverOutcome::Rejected => Err(PortError::Rejected),
         }
     }
 }

@@ -14,9 +14,9 @@ use crate::{
 };
 use work_contracts::{
     ApplicationResultRef, CreateChildWorkItemRequest, CreateWorkItemRequest, DerivedWorkViewRef,
-    FormalWorkRef, ProjectMemberResponsibilityState, ProjectRef,
-    UpdateWorkItemLifecycleRequest, WorkCommandEnvelope, WorkCommandReceipt, WorkItemCommandResult,
-    WorkLifecycleTarget, WorkTruthChange, WorkTruthCursor,
+    FormalWorkRef, ProjectMemberResponsibilityState, ProjectRef, UpdateWorkItemLifecycleRequest,
+    WorkCommandEnvelope, WorkCommandReceipt, WorkItemCommandResult, WorkLifecycleTarget,
+    WorkTruthChange, WorkTruthCursor,
 };
 use work_domain::{
     ChildWorkItem, CompletionEvidencePolicy, DomainError, FormalWorkPolicy, WorkAuditTrail,
@@ -352,6 +352,21 @@ where
                     .await;
             }
         };
+        if let Err(error) = self
+            .backlog_repo
+            .add_formal_work(
+                work_contracts::BacklogRef {
+                    backlog_id: parent_backlog_id,
+                },
+                work_ref.clone(),
+                &uow,
+            )
+            .await
+        {
+            return self
+                .rollback_and_err(uow, Self::map_repository_error(error))
+                .await;
+        }
         let trace_id = match self
             .append_trace_and_audit(
                 WorkTruthChange::WorkItemChanged(work_ref.clone()),

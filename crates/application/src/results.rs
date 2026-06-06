@@ -5,7 +5,8 @@ use async_trait::async_trait;
 use crate::{RepositoryError, UnitOfWorkHandle};
 use work_contracts::{
     ApplicationResultRef, BacklogCommandResult, BlockerCommandResult, DependencyCommandResult,
-    ProjectCommandResult, ProjectMemberCommandResult, PromoteCommandResult, WorkItemCommandResult,
+    IterationCommandResult, ProjectCommandResult, ProjectMemberCommandResult, PromoteCommandResult,
+    WorkItemCommandResult,
 };
 
 /// Stores public command result surfaces for idempotency duplicate replay.
@@ -43,6 +44,8 @@ pub enum StoredCommandResult {
     Dependency(DependencyCommandResult),
     /// Stored result for blocker command operations.
     Blocker(BlockerCommandResult),
+    /// Stored result for iteration command operations.
+    Iteration(IterationCommandResult),
 }
 
 impl StoredCommandResult {
@@ -131,6 +134,19 @@ impl StoredCommandResult {
     ) -> Option<BlockerCommandResult> {
         match self {
             Self::Blocker(result) if result.receipt.result_ref.operation == *operation => {
+                Some(result)
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns the stored iteration result when the operation expects it.
+    pub fn into_iteration_result(
+        self,
+        operation: &core_contracts::metadata::OperationName,
+    ) -> Option<IterationCommandResult> {
+        match self {
+            Self::Iteration(result) if result.receipt.result_ref.operation == *operation => {
                 Some(result)
             }
             _ => None,

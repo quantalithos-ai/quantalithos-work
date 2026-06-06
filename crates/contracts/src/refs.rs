@@ -386,6 +386,21 @@ pub struct ExternalEvidenceRef {
     pub verified_state: EvidenceVerifiedState,
 }
 
+/// Safe summary resolved from Process for iteration opening.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProcessTimeboxSummary {
+    /// Process timebox reference resolved by the port.
+    pub timebox_ref: ProcessTimeboxRef,
+    /// Project scope that this timebox may bind to.
+    pub project_ref: ProjectRef,
+    /// Whether Process currently allows Work to open an iteration for this timebox.
+    pub can_open_iteration: bool,
+    /// Optional safe summary supplied by Process.
+    pub summary: Option<SafeSummaryText>,
+    /// Digest of the Process-owned timebox summary snapshot.
+    pub source_digest: SourceDigest,
+}
+
 /// Target lifecycle state requested for formal work.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

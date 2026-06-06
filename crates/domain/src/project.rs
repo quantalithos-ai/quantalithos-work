@@ -516,6 +516,19 @@ impl ChildWorkItem {
         Ok(())
     }
 
+    /// Marks the child work item as committed into an iteration scope.
+    pub fn mark_committed(
+        &mut self,
+        _iteration_ref: IterationRef,
+        _actor: ActorRef,
+    ) -> Result<(), DomainError> {
+        if self.work_state != WorkItemState::Formalized {
+            return Err(DomainError::InvalidStateTransition);
+        }
+        self.work_state = WorkItemState::Committed;
+        Ok(())
+    }
+
     /// Executes one lifecycle transition for child work.
     pub fn transition_lifecycle(
         &mut self,

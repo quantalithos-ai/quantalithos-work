@@ -7,20 +7,20 @@ use async_trait::async_trait;
 use core_contracts::metadata::{PageRequest, Version};
 use work_application::{
     AuditRepository, BacklogRepository, DependencyRepository, FormalWorkRecord, FormalWorkScope,
-    Page, PageInfo, ProjectMemberRepository, ProjectRepository, ProjectionRepository,
-    PromoteRepository, ReferenceSnapshotRepository, RepositoryError, UnitOfWork, UnitOfWorkError,
-    UnitOfWorkHandle, UnitOfWorkId, WorkItemRepository,
+    IterationRepository, Page, PageInfo, ProjectMemberRepository, ProjectRepository,
+    ProjectionRepository, PromoteRepository, ReferenceSnapshotRepository, RepositoryError,
+    UnitOfWork, UnitOfWorkError, UnitOfWorkHandle, UnitOfWorkId, WorkItemRepository,
 };
 use work_contracts::{
     BacklogRef, DependencyOrBlockerRef, DerivedWorkViewRef, FormalWorkRef, GlobalMemberRef,
-    ProjectMemberRef, ProjectOwnerRef, ProjectRef, PromoteResultRef, SourceWorkRef,
+    IterationRef, ProjectMemberRef, ProjectOwnerRef, ProjectRef, PromoteResultRef, SourceWorkRef,
     WorkAuditSubjectRef, WorkBlockerRef, WorkDependencyRef, WorkTruthCursor,
 };
 use work_domain::{
-    Backlog, ChildWorkItem, DependencyChangeRecord, DependencyGraphSnapshot,
-    MemberCapabilitySnapshot, PendingPromoteIntake, ProjectMember, PromoteDecisionRecord,
-    PromoteResult, TraceHandoffMarker, WorkAuditTrail, WorkBlocker, WorkDependency, WorkItem,
-    WorkTraceRecord,
+    Backlog, ChildWorkItem, DependencyChangeRecord, DependencyGraphSnapshot, Iteration,
+    IterationChangeRecord, IterationCommitment, MemberCapabilitySnapshot, PendingPromoteIntake,
+    ProjectMember, PromoteDecisionRecord, PromoteResult, TraceHandoffMarker, WorkAuditTrail,
+    WorkBlocker, WorkDependency, WorkItem, WorkTraceRecord,
 };
 
 /// Shared in-memory fake stores for CORE command service tests.
@@ -40,6 +40,9 @@ struct Stores {
     project_member_by_project_and_member: HashMap<(String, String), String>,
     work_items: HashMap<String, (WorkItem, Version)>,
     child_work_items: HashMap<String, (ChildWorkItem, Version)>,
+    iterations: HashMap<String, (Iteration, Version)>,
+    commitments: HashMap<String, (IterationCommitment, Version)>,
+    iteration_changes: Vec<IterationChangeRecord>,
     dependencies: HashMap<String, (WorkDependency, Version)>,
     blockers: HashMap<String, (WorkBlocker, Version)>,
     dependency_changes: Vec<DependencyChangeRecord>,
@@ -169,6 +172,35 @@ impl InMemoryWorkStores {
         self.state
             .lock()
             .map(|state| state.promote_decisions.clone())
+            .unwrap_or_default()
+    }
+
+    /// Returns one stored iteration and version by ref.
+    pub fn iteration_snapshot(&self, iteration_ref: &IterationRef) -> Option<(Iteration, Version)> {
+        self.state
+            .lock()
+            .ok()
+            .and_then(|state| state.iterations.get(&iteration_ref.iteration_id.0).cloned())
+    }
+
+    /// Returns one stored commitment and version by iteration ref.
+    pub fn commitment_snapshot(
+        &self,
+        iteration_ref: &IterationRef,
+    ) -> Option<(IterationCommitment, Version)> {
+        self.state.lock().ok().and_then(|state| {
+            state
+                .commitments
+                .get(&iteration_ref.iteration_id.0)
+                .cloned()
+        })
+    }
+
+    /// Returns all stored iteration change records in append order.
+    pub fn iteration_changes(&self) -> Vec<IterationChangeRecord> {
+        self.state
+            .lock()
+            .map(|state| state.iteration_changes.clone())
             .unwrap_or_default()
     }
 
@@ -454,6 +486,30 @@ impl WorkItemRepository for InMemoryWorkStores {
                 .child_work_items
                 .get(&child_work_item_id.0)
                 .map(|(child, _)| FormalWorkRecord::ChildWorkItem(child.clone())),
+        })
+    }
+
+    async fn get_formal_work_with_version(
+        &self,
+        work_ref: FormalWorkRef,
+    ) -> Result<Option<(FormalWorkRecord, Version)>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(match work_ref {
+            FormalWorkRef::WorkItem(work_item_id) => {
+                state
+                    .work_items
+                    .get(&work_item_id.0)
+                    .map(|(work_item, version)| {
+                        (FormalWorkRecord::WorkItem(work_item.clone()), *version)
+                    })
+            }
+            FormalWorkRef::ChildWorkItem(child_work_item_id) => state
+                .child_work_items
+                .get(&child_work_item_id.0)
+                .map(|(child, version)| (FormalWorkRecord::ChildWorkItem(child.clone()), *version)),
         })
     }
 
@@ -1121,6 +1177,160 @@ impl ReferenceSnapshotRepository for InMemoryWorkStores {
                 Ok(1)
             }
         }
+    }
+}
+
+#[async_trait]
+impl IterationRepository for InMemoryWorkStores {
+    async fn get_iteration(
+        &self,
+        iteration_ref: IterationRef,
+    ) -> Result<Option<Iteration>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(state
+            .iterations
+            .get(&iteration_ref.iteration_id.0)
+            .map(|(iteration, _)| iteration.clone()))
+    }
+
+    async fn get_commitment(
+        &self,
+        iteration_ref: IterationRef,
+    ) -> Result<Option<IterationCommitment>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(state
+            .commitments
+            .get(&iteration_ref.iteration_id.0)
+            .map(|(commitment, _)| commitment.clone()))
+    }
+
+    async fn get_commitment_with_version(
+        &self,
+        iteration_ref: IterationRef,
+    ) -> Result<Option<(IterationCommitment, Version)>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(state
+            .commitments
+            .get(&iteration_ref.iteration_id.0)
+            .cloned())
+    }
+
+    async fn list_by_project(
+        &self,
+        project_ref: ProjectRef,
+        _page: PageRequest,
+    ) -> Result<Page<Iteration>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let items = state
+            .iterations
+            .values()
+            .filter_map(|(iteration, _)| {
+                (iteration.project_id == project_ref.project_id).then_some(iteration.clone())
+            })
+            .collect();
+        Ok(Page {
+            items,
+            page_info: PageInfo {
+                next_page_token: None,
+                has_more: false,
+            },
+        })
+    }
+
+    async fn create_iteration(
+        &self,
+        iteration: Iteration,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        if state.iterations.contains_key(&iteration.iteration_id.0) {
+            return Err(RepositoryError::VersionConflict);
+        }
+        state
+            .iterations
+            .insert(iteration.iteration_id.0.clone(), (iteration, 1));
+        Ok(1)
+    }
+
+    async fn save_iteration(
+        &self,
+        iteration: Iteration,
+        expected_version: Version,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let entry = state
+            .iterations
+            .get_mut(&iteration.iteration_id.0)
+            .ok_or(RepositoryError::NotFound)?;
+        if entry.1 != expected_version {
+            return Err(RepositoryError::VersionConflict);
+        }
+        entry.0 = iteration;
+        entry.1 += 1;
+        Ok(entry.1)
+    }
+
+    async fn save_commitment(
+        &self,
+        commitment: IterationCommitment,
+        expected_version: Option<Version>,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        match state.commitments.get_mut(&commitment.iteration_id.0) {
+            Some((stored, version)) => {
+                if Some(*version) != expected_version {
+                    return Err(RepositoryError::VersionConflict);
+                }
+                *stored = commitment;
+                *version += 1;
+                Ok(*version)
+            }
+            None => {
+                if expected_version.is_some() {
+                    return Err(RepositoryError::VersionConflict);
+                }
+                state
+                    .commitments
+                    .insert(commitment.iteration_id.0.clone(), (commitment, 1));
+                Ok(1)
+            }
+        }
+    }
+
+    async fn append_change(
+        &self,
+        change: IterationChangeRecord,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<(), RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        state.iteration_changes.push(change);
+        Ok(())
     }
 }
 

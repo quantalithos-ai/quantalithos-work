@@ -3,6 +3,7 @@
 mod dependency;
 mod errors;
 mod idempotency;
+mod iteration;
 mod member;
 mod ports;
 mod project;
@@ -17,14 +18,16 @@ pub use idempotency::{
     IdempotencyConflict, IdempotencyError, IdempotencyRecord, IdempotencyRepository,
     IdempotencyReservation, IdempotencyStatus, RequestDigest,
 };
+pub use iteration::IterationCommandService;
 pub use member::ProjectMemberCommandService;
 pub use ports::{
     AuditRepository, BacklogRepository, ClockPort, DependencyRepository, EvidenceResolution,
-    EvidenceResolverPort, FormalWorkRecord, FormalWorkScope, IdGeneratorPort,
+    EvidenceResolverPort, FormalWorkRecord, FormalWorkScope, IdGeneratorPort, IterationRepository,
     MemberCapabilitySnapshotInput, MemberReferencePort, Page, PageInfo, PortError,
-    ProjectMemberRepository, ProjectRepository, ProjectionRepository, PromoteRepository,
-    ReferenceSnapshotRepository, RepositoryError, SourceWorkResolution, SourceWorkResolverPort,
-    WorkItemRepository, WorkOutboxRepository,
+    ProcessTimeboxResolution, ProcessTimeboxResolverPort, ProjectMemberRepository,
+    ProjectRepository, ProjectionRepository, PromoteRepository, ReferenceSnapshotRepository,
+    RepositoryError, SourceWorkResolution, SourceWorkResolverPort, WorkItemRepository,
+    WorkOutboxRepository,
 };
 pub use project::ProjectCommandService;
 pub use promote::PromoteCommandService;
