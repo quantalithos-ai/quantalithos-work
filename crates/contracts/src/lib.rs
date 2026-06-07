@@ -48,6 +48,11 @@ pub use queries::{
     WorkQueryResponse, WorkRelationStateView, WorkRelationSummaryView, WorkSearchCriteria,
     WorkSearchProjection, WorkSearchResult, WorkTraceRecordView, WorkTraceView,
 };
+pub use views::{
+    BacklogTruthSummary, FormalWorkTruthSummary, IterationTruthSummary, ProjectMemberTruthSummary,
+    ProjectProjectionBatch, ProjectTruthSummary, ProjectWorkTruthSnapshot,
+    WorkRelationTruthSummary,
+};
 pub use refs::{
     ArchiveHandoffRef, ArchiveHandoffScope, ArchiveHandoffScopeKind, ArchiveHandoffTargetKind,
     ArchiveHandoffTargetRef, BacklogId, BacklogMaintenanceReason, BacklogMaintenanceReasonKind,

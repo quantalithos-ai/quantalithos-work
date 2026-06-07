@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::UnitOfWorkHandle;
 use work_contracts::views::{
-    IterationSummaryView, MemberWorkView, ProjectBoardView, WorkSearchProjection,
+    IterationSummaryView, MemberWorkView, ProjectBoardView, ProjectProjectionBatch,
+    ProjectWorkTruthSnapshot, WorkSearchProjection,
 };
 use work_contracts::{
     BacklogRef, DependencyOrBlockerRef, DerivedWorkViewRef, ExternalEvidenceRef,
@@ -509,6 +510,12 @@ pub trait ReferenceSnapshotRepository: Send + Sync {
         reference_ref: ExternalReferenceRef,
     ) -> Result<Option<work_domain::ReferenceResolutionState>, RepositoryError>;
 
+    /// Loads one cached external reference state together with its optimistic version.
+    async fn get_reference_state_with_version(
+        &self,
+        reference_ref: ExternalReferenceRef,
+    ) -> Result<Option<(work_domain::ReferenceResolutionState, Version)>, RepositoryError>;
+
     /// Saves one external reference state in the current unit of work.
     async fn save_reference_state(
         &self,
@@ -522,6 +529,12 @@ pub trait ReferenceSnapshotRepository: Send + Sync {
         &self,
         member_ref: GlobalMemberRef,
     ) -> Result<Option<MemberCapabilitySnapshot>, RepositoryError>;
+
+    /// Loads one cached member capability snapshot together with its optimistic version.
+    async fn get_member_snapshot_with_version(
+        &self,
+        member_ref: GlobalMemberRef,
+    ) -> Result<Option<(MemberCapabilitySnapshot, Version)>, RepositoryError>;
 
     /// Saves one member capability snapshot in the current unit of work.
     async fn save_member_snapshot(
@@ -537,6 +550,12 @@ pub trait ReferenceSnapshotRepository: Send + Sync {
         definition_ref: MethodDefinitionRef,
     ) -> Result<Option<MethodDefinitionSnapshot>, RepositoryError>;
 
+    /// Loads one cached method definition snapshot together with its optimistic version.
+    async fn get_method_snapshot_with_version(
+        &self,
+        definition_ref: MethodDefinitionRef,
+    ) -> Result<Option<(MethodDefinitionSnapshot, Version)>, RepositoryError>;
+
     /// Saves one method definition snapshot in the current unit of work.
     async fn save_method_snapshot(
         &self,
@@ -548,6 +567,13 @@ pub trait ReferenceSnapshotRepository: Send + Sync {
     /// Lists stale or failed references for refresh jobs.
     async fn list_stale_references(
         &self,
+        page: PageRequest,
+    ) -> Result<Page<ExternalReferenceRef>, RepositoryError>;
+
+    /// Lists references associated with one project through committed truth or local indexes.
+    async fn list_project_references(
+        &self,
+        project_ref: ProjectRef,
         page: PageRequest,
     ) -> Result<Page<ExternalReferenceRef>, RepositoryError>;
 
@@ -767,6 +793,13 @@ pub trait ProjectionRepository: Send + Sync {
         view_ref: DerivedWorkViewRef,
     ) -> Result<Option<DerivedWorkViewState>, RepositoryError>;
 
+    /// Lists freshness states for reconciliation or inspection.
+    async fn list_freshness_states(
+        &self,
+        scope_ref: work_contracts::WorkReconciliationScopeRef,
+        page: PageRequest,
+    ) -> Result<Page<DerivedWorkViewState>, RepositoryError>;
+
     /// Lists existing public derived views whose source index depends on one identity member.
     async fn list_views_affected_by_member(
         &self,
@@ -780,6 +813,21 @@ pub trait ProjectionRepository: Send + Sync {
         definition_ref: MethodDefinitionRef,
         page: PageRequest,
     ) -> Result<Page<DerivedWorkViewRef>, RepositoryError>;
+
+    /// Lists existing public derived views affected by successfully refreshed references.
+    async fn list_views_affected_by_references(
+        &self,
+        reference_refs: Vec<ExternalReferenceRef>,
+        page: PageRequest,
+    ) -> Result<Page<DerivedWorkViewRef>, RepositoryError>;
+
+    /// Replaces project-scoped derived views after a rebuild from truth.
+    async fn replace_project_views(
+        &self,
+        views: ProjectProjectionBatch,
+        source_cursor: WorkTruthCursor,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<(), RepositoryError>;
 
     /// Marks affected derived views stale after a truth or snapshot change.
     async fn mark_stale(
@@ -805,6 +853,22 @@ pub trait ProjectionRepository: Send + Sync {
         reason: ProjectionFailureReason,
         uow: &UnitOfWorkHandle,
     ) -> Result<(), RepositoryError>;
+}
+
+/// Reads committed Work truth snapshots for rebuild and reconciliation.
+#[async_trait]
+pub trait WorkTruthSnapshotRepository: Send + Sync {
+    /// Loads project-scoped truth for projection rebuild.
+    async fn load_project_truth_snapshot(
+        &self,
+        project_ref: ProjectRef,
+    ) -> Result<ProjectWorkTruthSnapshot, RepositoryError>;
+
+    /// Loads cursor state used by reconciliation.
+    async fn load_truth_cursor(
+        &self,
+        project_ref: ProjectRef,
+    ) -> Result<WorkTruthCursor, RepositoryError>;
 }
 
 /// Resolves the current query actor into a safe identity member ref.

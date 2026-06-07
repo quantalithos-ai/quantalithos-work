@@ -10,16 +10,18 @@ use work_application::{
     IterationRepository, IterationSummaryViewProjection, MemberWorkViewProjection, Page, PageInfo,
     ProjectBoardViewProjection, ProjectMemberRepository, ProjectRepository, ProjectionRepository,
     PromoteRepository, ReferenceSnapshotRepository, RepositoryError, UnitOfWork, UnitOfWorkError,
-    UnitOfWorkHandle, UnitOfWorkId, WorkItemRepository,
+    UnitOfWorkHandle, UnitOfWorkId, WorkItemRepository, WorkTruthSnapshotRepository,
 };
 use work_contracts::views::{
-    IterationSummaryView, MemberWorkView, ProjectBoardView, WorkSearchProjection,
+    IterationSummaryView, MemberWorkView, ProjectBoardView, ProjectProjectionBatch,
+    ProjectWorkTruthSnapshot, WorkSearchProjection,
 };
 use work_contracts::{
     BacklogRef, DependencyOrBlockerRef, DerivedWorkViewRef, ExternalReferenceRef, FormalWorkRef,
     GlobalMemberRef, IterationRef, MethodDefinitionRef, ProjectMemberRef, ProjectOwnerRef,
     ProjectRef, PromoteResultRef, SourceWorkRef, WorkAuditSubjectRef, WorkBlockerRef,
-    WorkDependencyRef, WorkSearchCriteria, WorkTraceId, WorkTraceSubjectRef, WorkTruthCursor,
+    WorkDependencyRef, WorkReconciliationScopeKind, WorkReconciliationScopeRef,
+    WorkSearchCriteria, WorkTraceId, WorkTraceSubjectRef, WorkTruthCursor,
 };
 use work_domain::{
     Backlog, ChildWorkItem, DependencyChangeRecord, DependencyGraphSnapshot, DerivedWorkViewState,
@@ -38,6 +40,7 @@ pub struct InMemoryWorkStores {
 #[derive(Default)]
 struct Stores {
     next_handle: u64,
+    strict_reference_versions: bool,
     projects: HashMap<String, (work_domain::Project, Version)>,
     backlogs: HashMap<String, (Backlog, Version)>,
     backlog_by_project: HashMap<String, String>,
@@ -61,6 +64,7 @@ struct Stores {
     method_snapshots: HashMap<String, (MethodDefinitionSnapshot, Version)>,
     affected_views_by_member: HashMap<String, Vec<DerivedWorkViewRef>>,
     affected_views_by_method: HashMap<String, Vec<DerivedWorkViewRef>>,
+    affected_views_by_reference: HashMap<String, Vec<DerivedWorkViewRef>>,
     audit_trails: HashMap<String, (WorkAuditTrail, Version)>,
     traces: Vec<WorkTraceRecord>,
     trace_handoff_markers: HashMap<String, TraceHandoffMarker>,
@@ -82,6 +86,13 @@ impl InMemoryWorkStores {
     /// Creates empty fake stores.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Enables strict optimistic-version enforcement for reference states and snapshots.
+    pub fn set_strict_reference_versions(&self, enabled: bool) {
+        if let Ok(mut state) = self.state.lock() {
+            state.strict_reference_versions = enabled;
+        }
     }
 
     /// Returns the number of stored traces.
@@ -425,6 +436,19 @@ impl InMemoryWorkStores {
             state
                 .affected_views_by_method
                 .insert(definition_ref.0.clone(), view_refs);
+        }
+    }
+
+    /// Seeds already-existing public affected views for one external reference.
+    pub fn seed_affected_views_for_reference(
+        &self,
+        reference_ref: &ExternalReferenceRef,
+        view_refs: Vec<DerivedWorkViewRef>,
+    ) {
+        if let Ok(mut state) = self.state.lock() {
+            state
+                .affected_views_by_reference
+                .insert(reference_key(reference_ref), view_refs);
         }
     }
 }
@@ -1492,6 +1516,20 @@ impl ReferenceSnapshotRepository for InMemoryWorkStores {
             .map(|(snapshot, _)| snapshot.clone()))
     }
 
+    async fn get_reference_state_with_version(
+        &self,
+        reference_ref: ExternalReferenceRef,
+    ) -> Result<Option<(ReferenceResolutionState, Version)>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(state
+            .reference_states
+            .get(&reference_key(&reference_ref))
+            .cloned())
+    }
+
     async fn save_reference_state(
         &self,
         state_snapshot: ReferenceResolutionState,
@@ -1502,10 +1540,15 @@ impl ReferenceSnapshotRepository for InMemoryWorkStores {
             .state
             .lock()
             .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let strict_reference_versions = state.strict_reference_versions;
         let key = reference_key(&state_snapshot.reference_ref);
         match state.reference_states.get_mut(&key) {
             Some((stored, version)) => {
-                if Some(*version) != expected_version {
+                if strict_reference_versions {
+                    if Some(*version) != expected_version {
+                        return Err(RepositoryError::VersionConflict);
+                    }
+                } else if expected_version.is_some() && Some(*version) != expected_version {
                     return Err(RepositoryError::VersionConflict);
                 }
                 *stored = state_snapshot;
@@ -1536,6 +1579,17 @@ impl ReferenceSnapshotRepository for InMemoryWorkStores {
             .map(|(snapshot, _)| snapshot.clone()))
     }
 
+    async fn get_member_snapshot_with_version(
+        &self,
+        member_ref: GlobalMemberRef,
+    ) -> Result<Option<(MemberCapabilitySnapshot, Version)>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(state.member_snapshots.get(&member_ref.0).cloned())
+    }
+
     async fn save_member_snapshot(
         &self,
         snapshot: MemberCapabilitySnapshot,
@@ -1546,9 +1600,14 @@ impl ReferenceSnapshotRepository for InMemoryWorkStores {
             .state
             .lock()
             .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let strict_reference_versions = state.strict_reference_versions;
         match state.member_snapshots.get_mut(&snapshot.member_ref.0) {
             Some((stored, version)) => {
-                if Some(*version) != expected_version {
+                if strict_reference_versions {
+                    if Some(*version) != expected_version {
+                        return Err(RepositoryError::VersionConflict);
+                    }
+                } else if expected_version.is_some() && Some(*version) != expected_version {
                     return Err(RepositoryError::VersionConflict);
                 }
                 *stored = snapshot;
@@ -1580,6 +1639,17 @@ impl ReferenceSnapshotRepository for InMemoryWorkStores {
             .map(|(snapshot, _)| snapshot.clone()))
     }
 
+    async fn get_method_snapshot_with_version(
+        &self,
+        definition_ref: MethodDefinitionRef,
+    ) -> Result<Option<(MethodDefinitionSnapshot, Version)>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(state.method_snapshots.get(&definition_ref.0).cloned())
+    }
+
     async fn save_method_snapshot(
         &self,
         snapshot: MethodDefinitionSnapshot,
@@ -1590,9 +1660,14 @@ impl ReferenceSnapshotRepository for InMemoryWorkStores {
             .state
             .lock()
             .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let strict_reference_versions = state.strict_reference_versions;
         match state.method_snapshots.get_mut(&snapshot.definition_ref.0) {
             Some((stored, version)) => {
-                if Some(*version) != expected_version {
+                if strict_reference_versions {
+                    if Some(*version) != expected_version {
+                        return Err(RepositoryError::VersionConflict);
+                    }
+                } else if expected_version.is_some() && Some(*version) != expected_version {
                     return Err(RepositoryError::VersionConflict);
                 }
                 *stored = snapshot;
@@ -1648,6 +1723,123 @@ impl ReferenceSnapshotRepository for InMemoryWorkStores {
                 has_more,
             },
         })
+    }
+
+    async fn list_project_references(
+        &self,
+        project_ref: ProjectRef,
+        page: PageRequest,
+    ) -> Result<Page<ExternalReferenceRef>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let mut refs = Vec::new();
+
+        for (project, _) in state.projects.values() {
+            if project.project_ref() == project_ref {
+                if let Some(source_ref) = project.source_ref.clone() {
+                    refs.push(ExternalReferenceRef::from_source_work(source_ref));
+                }
+            }
+        }
+        for (member, _) in state.project_members.values() {
+            if member.project_id == project_ref.project_id {
+                refs.push(ExternalReferenceRef::from_member(member.member_ref.clone()));
+            }
+        }
+        for (work, _) in state.work_items.values() {
+            let Some((backlog, _)) = state.backlogs.get(&work.backlog_id.0) else {
+                continue;
+            };
+            if backlog.project_id != project_ref.project_id {
+                continue;
+            }
+            refs.push(ExternalReferenceRef::from_source_work(work.source_ref.clone()));
+            if let Some(definition_ref) = work.method_definition_ref.clone() {
+                refs.push(ExternalReferenceRef::from_method_definition(definition_ref));
+            }
+            if let Some(evidence_ref) = work.completion_ref.clone() {
+                refs.push(ExternalReferenceRef::from_evidence(evidence_ref));
+            }
+        }
+        for (child, _) in state.child_work_items.values() {
+            let Some((parent, _)) = state.work_items.get(&child.parent_work_item_id.0) else {
+                continue;
+            };
+            let Some((backlog, _)) = state.backlogs.get(&parent.backlog_id.0) else {
+                continue;
+            };
+            if backlog.project_id != project_ref.project_id {
+                continue;
+            }
+            refs.push(ExternalReferenceRef::from_source_work(child.source_ref.clone()));
+            if let Some(definition_ref) = child.method_definition_ref.clone() {
+                refs.push(ExternalReferenceRef::from_method_definition(definition_ref));
+            }
+            if let Some(evidence_ref) = child.completion_ref.clone() {
+                refs.push(ExternalReferenceRef::from_evidence(evidence_ref));
+            }
+        }
+        for (result, _) in state.promote_results.values() {
+            let Some(created_work_ref) = result.created_work_ref.clone() else {
+                continue;
+            };
+            let work_project_matches = match created_work_ref {
+                FormalWorkRef::WorkItem(work_item_id) => state
+                    .work_items
+                    .get(&work_item_id.0)
+                    .and_then(|(work, _)| state.backlogs.get(&work.backlog_id.0))
+                    .map(|(backlog, _)| backlog.project_id == project_ref.project_id)
+                    .unwrap_or(false),
+                FormalWorkRef::ChildWorkItem(child_id) => state
+                    .child_work_items
+                    .get(&child_id.0)
+                    .and_then(|(child, _)| state.work_items.get(&child.parent_work_item_id.0))
+                    .and_then(|(parent, _)| state.backlogs.get(&parent.backlog_id.0))
+                    .map(|(backlog, _)| backlog.project_id == project_ref.project_id)
+                    .unwrap_or(false),
+            };
+            if work_project_matches {
+                refs.push(ExternalReferenceRef::from_source_work(result.source_ref.clone()));
+            }
+        }
+        for intake in &state.pending_promote_intakes {
+            refs.push(ExternalReferenceRef::from_source_work(
+                intake.source_ref.clone(),
+            ));
+        }
+        for (dependency, _) in state.dependencies.values() {
+            let scope_matches = project_scope_contains_work(
+                &state,
+                &project_ref,
+                &dependency.upstream_work_ref,
+            ) || project_scope_contains_work(&state, &project_ref, &dependency.downstream_work_ref);
+            if scope_matches {
+                // No persisted evidence field yet beyond satisfied transition contract.
+            }
+        }
+        for (blocker, _) in state.blockers.values() {
+            if project_scope_contains_work(&state, &project_ref, &blocker.blocked_work_ref) {
+                if let Some(evidence_ref) = blocker.resolved_evidence_ref.clone() {
+                    refs.push(ExternalReferenceRef::from_evidence(evidence_ref));
+                }
+                if let Some(evidence_ref) = blocker.cause_ref.evidence_ref.clone() {
+                    refs.push(ExternalReferenceRef::from_evidence(evidence_ref));
+                }
+            }
+        }
+        for (iteration, _) in state.iterations.values() {
+            if iteration.project_id == project_ref.project_id {
+                refs.push(ExternalReferenceRef::from_process_timebox(
+                    iteration.timebox_ref.clone(),
+                ));
+            }
+        }
+
+        refs.sort_by_key(reference_key);
+        refs.dedup_by(|left, right| reference_key(left) == reference_key(right));
+        Ok(paginate_refs(refs, page))
     }
 
     async fn mark_reference_failed(
@@ -1905,6 +2097,35 @@ impl ProjectionRepository for InMemoryWorkStores {
             .cloned())
     }
 
+    async fn list_freshness_states(
+        &self,
+        scope_ref: WorkReconciliationScopeRef,
+        page: PageRequest,
+    ) -> Result<Page<DerivedWorkViewState>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let mut items = state
+            .freshness_states
+            .values()
+            .filter(|view_state| match scope_ref.scope_kind {
+                WorkReconciliationScopeKind::All => true,
+                WorkReconciliationScopeKind::Project => scope_ref.project_ref.as_ref().is_none_or(
+                    |project_ref| matches_project_view(&view_state.view_ref, project_ref),
+                ),
+                WorkReconciliationScopeKind::DerivedView => scope_ref
+                    .view_ref
+                    .as_ref()
+                    .is_some_and(|view_ref| &view_state.view_ref == view_ref),
+                WorkReconciliationScopeKind::ExternalReference => false,
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        items.sort_by_key(|state| freshness_key(&state.view_ref));
+        paginate_states(items, page)
+    }
+
     async fn list_views_affected_by_member(
         &self,
         member_ref: GlobalMemberRef,
@@ -1953,6 +2174,128 @@ impl ProjectionRepository for InMemoryWorkStores {
                 has_more: false,
             },
         })
+    }
+
+    async fn list_views_affected_by_references(
+        &self,
+        reference_refs: Vec<ExternalReferenceRef>,
+        page: PageRequest,
+    ) -> Result<Page<DerivedWorkViewRef>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let mut ref_keys = reference_refs
+            .into_iter()
+            .map(|reference_ref| reference_key(&reference_ref))
+            .collect::<Vec<_>>();
+        ref_keys.sort();
+        ref_keys.dedup();
+
+        let mut items = Vec::new();
+        for key in ref_keys {
+            if let Some(view_refs) = state.affected_views_by_reference.get(&key) {
+                items.extend(view_refs.clone());
+            }
+        }
+        items.sort_by_key(freshness_key);
+        items.dedup();
+        paginate_view_refs(items, page)
+    }
+
+    async fn replace_project_views(
+        &self,
+        views: ProjectProjectionBatch,
+        source_cursor: WorkTruthCursor,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<(), RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let project_ids = views
+            .board_views
+            .iter()
+            .map(|view| view.project_ref.project_id.0.clone())
+            .chain(
+                views.member_views
+                    .iter()
+                    .filter_map(|view| match &view.marker.view_ref.scope_ref {
+                        work_contracts::DerivedWorkViewScopeRef::ProjectMember(member_ref) => state
+                            .project_members
+                            .get(&member_ref.project_member_id.0)
+                            .map(|(member, _)| member.project_id.0.clone()),
+                        _ => None,
+                    }),
+            )
+            .chain(
+                views.iteration_views
+                    .iter()
+                    .filter_map(|view| state
+                        .iterations
+                        .get(&view.iteration_ref.iteration_id.0)
+                        .map(|(iteration, _)| iteration.project_id.0.clone())),
+            )
+            .chain(
+                views.search_records
+                    .iter()
+                    .map(|row| row.project_ref.project_id.0.clone()),
+            )
+            .collect::<std::collections::BTreeSet<_>>();
+        for project_id in project_ids {
+            state.project_board_views.remove(&project_id);
+            state.work_search_rows.remove(&project_id);
+        }
+        for view in views.board_views {
+            let key = view.project_ref.project_id.0.clone();
+            state.project_board_views.insert(
+                key,
+                ProjectBoardViewProjection {
+                    freshness: DerivedWorkViewState {
+                        view_ref: view.marker.view_ref.clone(),
+                        source_cursor: source_cursor.clone(),
+                        freshness_state: work_contracts::DerivedFreshnessState::Fresh,
+                    },
+                    view,
+                },
+            );
+        }
+        for view in views.member_views {
+            let key = view.member_ref.project_member_id.0.clone();
+            state.member_work_views.insert(
+                key,
+                MemberWorkViewProjection {
+                    freshness: DerivedWorkViewState {
+                        view_ref: view.marker.view_ref.clone(),
+                        source_cursor: source_cursor.clone(),
+                        freshness_state: work_contracts::DerivedFreshnessState::Fresh,
+                    },
+                    view,
+                },
+            );
+        }
+        for view in views.iteration_views {
+            let key = view.iteration_ref.iteration_id.0.clone();
+            state.iteration_summary_views.insert(
+                key,
+                IterationSummaryViewProjection {
+                    freshness: DerivedWorkViewState {
+                        view_ref: view.marker.view_ref.clone(),
+                        source_cursor: source_cursor.clone(),
+                        freshness_state: work_contracts::DerivedFreshnessState::Fresh,
+                    },
+                    view,
+                },
+            );
+        }
+        for row in views.search_records {
+            state
+                .work_search_rows
+                .entry(row.project_ref.project_id.0.clone())
+                .or_default()
+                .push(row);
+        }
+        Ok(())
     }
 
     async fn mark_stale(
@@ -2021,4 +2364,298 @@ impl ProjectionRepository for InMemoryWorkStores {
         state.failed_marks.push((affected, source_cursor, reason));
         Ok(())
     }
+}
+
+#[async_trait]
+impl WorkTruthSnapshotRepository for InMemoryWorkStores {
+    async fn load_project_truth_snapshot(
+        &self,
+        project_ref: ProjectRef,
+    ) -> Result<ProjectWorkTruthSnapshot, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let (project, _) = state
+            .projects
+            .get(&project_ref.project_id.0)
+            .ok_or(RepositoryError::NotFound)?;
+        let backlog = state
+            .backlog_by_project
+            .get(&project_ref.project_id.0)
+            .and_then(|backlog_id| state.backlogs.get(backlog_id));
+
+        let members = state
+            .project_members
+            .values()
+            .filter(|(member, _)| member.project_id == project_ref.project_id)
+            .map(|(member, _)| work_contracts::views::ProjectMemberTruthSummary {
+                project_member_ref: member.project_member_ref(),
+                project_ref: ProjectRef {
+                    project_id: member.project_id.clone(),
+                },
+                member_ref: member.member_ref.clone(),
+                responsibility_state: member.responsibility_state,
+            })
+            .collect::<Vec<_>>();
+
+        let mut work_items = Vec::new();
+        for (work, _) in state.work_items.values() {
+            let Some((backlog, _)) = state.backlogs.get(&work.backlog_id.0) else {
+                continue;
+            };
+            if backlog.project_id != project_ref.project_id {
+                continue;
+            }
+            work_items.push(work_contracts::views::FormalWorkTruthSummary {
+                work_ref: work.formal_work_ref(),
+                project_ref: ProjectRef {
+                    project_id: backlog.project_id.clone(),
+                },
+                backlog_ref: backlog.backlog_ref(),
+                parent_ref: None,
+                title: work.title.clone(),
+                work_state: work.work_state,
+                assignee_ref: Some(work.assignee_ref.clone()),
+                source_ref: Some(work.source_ref.clone()),
+                source_kind: Some(work.source_ref.source_kind),
+                method_definition_ref: work.method_definition_ref.clone(),
+                completion_ref: work.completion_ref.clone(),
+                iteration_ref: find_iteration_ref_for_work(&state, &work.formal_work_ref()),
+            });
+        }
+        for (child, _) in state.child_work_items.values() {
+            let Some((parent, _)) = state.work_items.get(&child.parent_work_item_id.0) else {
+                continue;
+            };
+            let Some((backlog, _)) = state.backlogs.get(&parent.backlog_id.0) else {
+                continue;
+            };
+            if backlog.project_id != project_ref.project_id {
+                continue;
+            }
+            work_items.push(work_contracts::views::FormalWorkTruthSummary {
+                work_ref: child.formal_work_ref(),
+                project_ref: ProjectRef {
+                    project_id: backlog.project_id.clone(),
+                },
+                backlog_ref: backlog.backlog_ref(),
+                parent_ref: Some(parent.formal_work_ref()),
+                title: child.title.clone(),
+                work_state: child.work_state,
+                assignee_ref: Some(parent.assignee_ref.clone()),
+                source_ref: Some(child.source_ref.clone()),
+                source_kind: Some(child.source_ref.source_kind),
+                method_definition_ref: child.method_definition_ref.clone(),
+                completion_ref: child.completion_ref.clone(),
+                iteration_ref: find_iteration_ref_for_work(&state, &child.formal_work_ref()),
+            });
+        }
+
+        let relations = state
+            .dependencies
+            .values()
+            .filter(|(dependency, _)| {
+                project_scope_contains_work(&state, &project_ref, &dependency.upstream_work_ref)
+                    || project_scope_contains_work(
+                        &state,
+                        &project_ref,
+                        &dependency.downstream_work_ref,
+                    )
+            })
+            .map(|(dependency, _)| work_contracts::views::WorkRelationTruthSummary {
+                relation_ref: DependencyOrBlockerRef::Dependency(dependency.dependency_ref()),
+                affected_work_refs: vec![
+                    dependency.upstream_work_ref.clone(),
+                    dependency.downstream_work_ref.clone(),
+                ],
+                relation_state: work_contracts::views::WorkRelationStateView::Dependency(
+                    dependency.dependency_state,
+                ),
+            })
+            .chain(state.blockers.values().filter_map(|(blocker, _)| {
+                project_scope_contains_work(&state, &project_ref, &blocker.blocked_work_ref).then(
+                    || work_contracts::views::WorkRelationTruthSummary {
+                        relation_ref: DependencyOrBlockerRef::Blocker(blocker.blocker_ref()),
+                        affected_work_refs: vec![blocker.blocked_work_ref.clone()],
+                        relation_state: work_contracts::views::WorkRelationStateView::Blocker(
+                            blocker.blocker_state,
+                        ),
+                    },
+                )
+            }))
+            .collect::<Vec<_>>();
+
+        let iterations = state
+            .iterations
+            .values()
+            .filter(|(iteration, _)| iteration.project_id == project_ref.project_id)
+            .map(|(iteration, _)| {
+                let commitment = state.commitments.get(&iteration.iteration_id.0);
+                work_contracts::views::IterationTruthSummary {
+                    iteration_ref: iteration.iteration_ref(),
+                    project_ref: ProjectRef {
+                        project_id: iteration.project_id.clone(),
+                    },
+                    iteration_state: iteration.iteration_state,
+                    commitment_state: commitment.as_ref().map(|(value, _)| value.commitment_state),
+                    committed_work_refs: commitment
+                        .as_ref()
+                        .map(|(value, _)| value.committed_work_refs.refs.clone())
+                        .unwrap_or_default(),
+                }
+            })
+            .collect::<Vec<_>>();
+
+        Ok(ProjectWorkTruthSnapshot {
+            project: work_contracts::views::ProjectTruthSummary {
+                project_ref: project.project_ref(),
+                source_ref: project.source_ref.clone(),
+                lifecycle_state: project.lifecycle_state,
+                backlog_ref: backlog.map(|(value, _)| value.backlog_ref()),
+            },
+            backlog: backlog.map(|(value, _)| work_contracts::views::BacklogTruthSummary {
+                backlog_ref: value.backlog_ref(),
+                project_ref: ProjectRef {
+                    project_id: value.project_id.clone(),
+                },
+                backlog_state: value.backlog_state,
+            }),
+            members,
+            work_items,
+            relations,
+            iterations,
+            source_cursor: WorkTruthCursor(project_ref.project_id.0),
+        })
+    }
+
+    async fn load_truth_cursor(
+        &self,
+        project_ref: ProjectRef,
+    ) -> Result<WorkTruthCursor, RepositoryError> {
+        Ok(WorkTruthCursor(project_ref.project_id.0))
+    }
+}
+
+fn paginate_refs(items: Vec<ExternalReferenceRef>, page: PageRequest) -> Page<ExternalReferenceRef> {
+    let start = page
+        .page_token
+        .as_ref()
+        .and_then(|token| token.as_str().parse::<usize>().ok())
+        .unwrap_or(0);
+    let limit = usize::try_from(page.limit.max(1)).unwrap_or(usize::MAX);
+    let page_items = items
+        .iter()
+        .skip(start)
+        .take(limit)
+        .cloned()
+        .collect::<Vec<_>>();
+    let next = start + page_items.len();
+    let has_more = next < items.len();
+
+    Page {
+        items: page_items,
+        page_info: PageInfo {
+            next_page_token: has_more
+                .then(|| core_contracts::metadata::PageToken::new(next.to_string())),
+            has_more,
+        },
+    }
+}
+
+fn paginate_states(
+    items: Vec<DerivedWorkViewState>,
+    page: PageRequest,
+) -> Result<Page<DerivedWorkViewState>, RepositoryError> {
+    let start = page
+        .page_token
+        .as_ref()
+        .and_then(|token| token.as_str().parse::<usize>().ok())
+        .unwrap_or(0);
+    let limit = usize::try_from(page.limit.max(1)).unwrap_or(usize::MAX);
+    let page_items = items
+        .iter()
+        .skip(start)
+        .take(limit)
+        .cloned()
+        .collect::<Vec<_>>();
+    let next = start + page_items.len();
+    let has_more = next < items.len();
+    Ok(Page {
+        items: page_items,
+        page_info: PageInfo {
+            next_page_token: has_more
+                .then(|| core_contracts::metadata::PageToken::new(next.to_string())),
+            has_more,
+        },
+    })
+}
+
+fn paginate_view_refs(
+    items: Vec<DerivedWorkViewRef>,
+    page: PageRequest,
+) -> Result<Page<DerivedWorkViewRef>, RepositoryError> {
+    let start = page
+        .page_token
+        .as_ref()
+        .and_then(|token| token.as_str().parse::<usize>().ok())
+        .unwrap_or(0);
+    let limit = usize::try_from(page.limit.max(1)).unwrap_or(usize::MAX);
+    let page_items = items
+        .iter()
+        .skip(start)
+        .take(limit)
+        .cloned()
+        .collect::<Vec<_>>();
+    let next = start + page_items.len();
+    let has_more = next < items.len();
+    Ok(Page {
+        items: page_items,
+        page_info: PageInfo {
+            next_page_token: has_more
+                .then(|| core_contracts::metadata::PageToken::new(next.to_string())),
+            has_more,
+        },
+    })
+}
+
+fn project_scope_contains_work(
+    state: &Stores,
+    project_ref: &ProjectRef,
+    work_ref: &FormalWorkRef,
+) -> bool {
+    match work_ref {
+        FormalWorkRef::WorkItem(work_item_id) => state
+            .work_items
+            .get(&work_item_id.0)
+            .and_then(|(work, _)| state.backlogs.get(&work.backlog_id.0))
+            .map(|(backlog, _)| backlog.project_id == project_ref.project_id)
+            .unwrap_or(false),
+        FormalWorkRef::ChildWorkItem(child_work_item_id) => state
+            .child_work_items
+            .get(&child_work_item_id.0)
+            .and_then(|(child, _)| state.work_items.get(&child.parent_work_item_id.0))
+            .and_then(|(parent, _)| state.backlogs.get(&parent.backlog_id.0))
+            .map(|(backlog, _)| backlog.project_id == project_ref.project_id)
+            .unwrap_or(false),
+    }
+}
+
+fn matches_project_view(view_ref: &DerivedWorkViewRef, project_ref: &ProjectRef) -> bool {
+    match &view_ref.scope_ref {
+        work_contracts::DerivedWorkViewScopeRef::Project(candidate) => candidate == project_ref,
+        work_contracts::DerivedWorkViewScopeRef::ProjectMember(_) => true,
+        work_contracts::DerivedWorkViewScopeRef::Iteration(_) => true,
+        work_contracts::DerivedWorkViewScopeRef::Search(candidate, _) => candidate == project_ref,
+    }
+}
+
+fn find_iteration_ref_for_work(state: &Stores, work_ref: &FormalWorkRef) -> Option<IterationRef> {
+    state
+        .commitments
+        .iter()
+        .find(|(_, (commitment, _))| commitment.committed_work_refs.refs.contains(work_ref))
+        .map(|(iteration_id, _)| IterationRef {
+            iteration_id: work_contracts::IterationId(iteration_id.clone()),
+        })
 }

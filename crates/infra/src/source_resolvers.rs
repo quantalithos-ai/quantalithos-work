@@ -7,13 +7,15 @@ use async_trait::async_trait;
 use core_contracts::actor::ActorContext;
 use work_application::{
     ActorMemberResolverPort, EvidenceResolution, EvidenceResolverPort,
-    MemberCapabilitySnapshotInput, MemberReferencePort, PortError, ProcessTimeboxResolution,
+    MemberCapabilitySnapshotInput, MemberReferencePort, MethodDefinitionResolverPort,
+    MethodDefinitionSnapshotInput, PortError, ProcessTimeboxResolution,
     ProcessTimeboxResolverPort, QueryActorMemberRef, SourceWorkResolution, SourceWorkResolverPort,
 };
 use work_contracts::{
     CapabilityRefSet, EvidenceVerifiedState, ExternalEvidenceRef, ExternalReferenceRef,
     ExternalSourceSummary, GlobalMemberRef, ProcessTimeboxRef, ProcessTimeboxSummary, ProjectRef,
     ReferenceResolutionStatus, SafeSummaryText, SourceDigest, SourceWorkRef,
+    MethodDefinitionKind, MethodDefinitionRef,
 };
 use work_domain::ReferenceResolutionState;
 
@@ -136,6 +138,71 @@ impl MemberReferencePort for FakeMemberReferencePort {
             MemberResolverOutcome::Unavailable => Err(PortError::Unavailable),
             MemberResolverOutcome::Rejected => Err(PortError::Rejected),
             MemberResolverOutcome::BodyLeak => Err(PortError::InvalidResponse),
+        }
+    }
+}
+
+/// Deterministic fake method-definition resolver keyed by `MethodDefinitionRef`.
+#[derive(Clone, Default)]
+pub struct FakeMethodDefinitionResolverPort {
+    outcomes: Arc<Mutex<HashMap<String, MethodDefinitionResolverOutcome>>>,
+}
+
+/// Configured fake outcome for one method-definition resolver call.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MethodDefinitionResolverOutcome {
+    /// Resolver returns a safe definition kind.
+    Success(MethodDefinitionKind),
+    /// External reference does not exist.
+    Unresolved,
+    /// External dependency is temporarily unavailable.
+    Unavailable,
+    /// External boundary rejects this definition for Work use.
+    Rejected,
+    /// External boundary attempted to leak unsupported payload/body.
+    Invalid,
+}
+
+impl FakeMethodDefinitionResolverPort {
+    /// Creates an empty fake method-definition resolver.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Seeds the outcome returned for one method definition reference.
+    pub fn seed(
+        &self,
+        definition_ref: MethodDefinitionRef,
+        outcome: MethodDefinitionResolverOutcome,
+    ) {
+        if let Ok(mut outcomes) = self.outcomes.lock() {
+            outcomes.insert(definition_ref.0, outcome);
+        }
+    }
+}
+
+#[async_trait]
+impl MethodDefinitionResolverPort for FakeMethodDefinitionResolverPort {
+    async fn resolve_definition(
+        &self,
+        definition_ref: MethodDefinitionRef,
+    ) -> Result<MethodDefinitionSnapshotInput, PortError> {
+        let outcomes = self.outcomes.lock().map_err(|_| PortError::Unavailable)?;
+        match outcomes
+            .get(&definition_ref.0)
+            .cloned()
+            .unwrap_or(MethodDefinitionResolverOutcome::Unresolved)
+        {
+            MethodDefinitionResolverOutcome::Success(definition_kind) => {
+                Ok(MethodDefinitionSnapshotInput {
+                    definition_ref,
+                    definition_kind,
+                })
+            }
+            MethodDefinitionResolverOutcome::Unresolved => Err(PortError::NotFound),
+            MethodDefinitionResolverOutcome::Unavailable => Err(PortError::Unavailable),
+            MethodDefinitionResolverOutcome::Rejected => Err(PortError::Rejected),
+            MethodDefinitionResolverOutcome::Invalid => Err(PortError::InvalidResponse),
         }
     }
 }

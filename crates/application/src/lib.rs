@@ -6,6 +6,7 @@ mod errors;
 mod idempotency;
 mod iteration;
 mod member;
+mod ops;
 mod outbox;
 mod ports;
 mod project;
@@ -24,6 +25,9 @@ pub use idempotency::{
 };
 pub use iteration::IterationCommandService;
 pub use member::ProjectMemberCommandService;
+pub use ops::{
+    WorkDerivedMaintenanceService, WorkReconciliationService, WorkReferenceRefreshService,
+};
 pub use outbox::WorkOutboxPublishService;
 pub use ports::{
     ActorMemberResolverPort, AuditRepository, BacklogRepository, ClockPort, DependencyRepository,
@@ -35,6 +39,7 @@ pub use ports::{
     ProjectRepository, ProjectionRepository, PromoteRepository, QueryActorMemberRef,
     ReferenceSnapshotRepository, RepositoryError, SourceWorkResolution, SourceWorkResolverPort,
     Versioned, WorkItemRepository, WorkOutboxPublisherPort, WorkOutboxRepository,
+    WorkTruthSnapshotRepository,
 };
 pub use project::ProjectCommandService;
 pub use promote::PromoteCommandService;

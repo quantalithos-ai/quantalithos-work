@@ -1447,6 +1447,7 @@ mod tests {
                 title: fixtures::work_title("Query formal work"),
                 work_state: WorkItemState::Formalized,
                 assignee_ref: Some(member_ref.clone()),
+                source_kind: None,
                 source_cursor: fixtures::truth_cursor(),
             }],
         );

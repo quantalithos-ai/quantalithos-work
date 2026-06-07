@@ -15,7 +15,7 @@ use work_contracts::{
     ProjectLifecycleState, ProjectLifecycleTarget, ProjectMemberId, ProjectMemberReason,
     ProjectMemberReasonKind, ProjectMemberRef, ProjectMemberResponsibilityState, ProjectOwnerRef,
     ProjectRef, ProjectResponsibilitySpec, ProjectSpec, ReferenceResolutionStatus, SourceWorkRef,
-    WorkItemId, WorkItemState, WorkLifecycleReason, WorkLifecycleTarget,
+    WorkItemId, WorkItemState, WorkLifecycleReason, WorkLifecycleTarget, WorkTitle,
 };
 
 /// Represents the Work-owned project subject and protects its lifecycle boundary.
@@ -25,6 +25,8 @@ pub struct Project {
     pub project_id: ProjectId,
     /// External owner pointer without owner body.
     pub owner_ref: ProjectOwnerRef,
+    /// Optional source captured when the project was created.
+    pub source_ref: Option<SourceWorkRef>,
     /// Current lifecycle state.
     pub lifecycle_state: ProjectLifecycleState,
 }
@@ -43,6 +45,7 @@ impl Project {
         Ok(Self {
             project_id,
             owner_ref: spec.owner_ref,
+            source_ref: spec.source_ref,
             lifecycle_state: ProjectLifecycleState::Active,
         })
     }
@@ -323,8 +326,14 @@ pub struct WorkItem {
     pub work_item_id: WorkItemId,
     /// Owning backlog.
     pub backlog_id: BacklogId,
+    /// Searchable title captured from the formal work intent.
+    pub title: WorkTitle,
     /// Current assignee inside the project.
     pub assignee_ref: ProjectMemberRef,
+    /// Source used to create or promote this work.
+    pub source_ref: SourceWorkRef,
+    /// Optional method definition used at formal admission.
+    pub method_definition_ref: Option<MethodDefinitionRef>,
     /// Current formal work lifecycle state.
     pub work_state: WorkItemState,
     /// Optional external completion evidence.
@@ -340,7 +349,7 @@ impl WorkItem {
         source_ref: SourceWorkRef,
         _actor: ActorRef,
     ) -> Result<Self, DomainError> {
-        FormalWorkPolicy::assert_formal_work(intent.clone(), source_ref)?;
+        FormalWorkPolicy::assert_formal_work(intent.clone(), source_ref.clone())?;
         if work_item_id.0.trim().is_empty() || backlog_id.0.trim().is_empty() {
             return Err(DomainError::MissingRequiredValue);
         }
@@ -348,7 +357,10 @@ impl WorkItem {
         Ok(Self {
             work_item_id,
             backlog_id,
+            title: intent.title,
             assignee_ref: intent.assignee_ref,
+            source_ref,
+            method_definition_ref: intent.method_definition_ref,
             work_state: WorkItemState::Formalized,
             completion_ref: None,
         })
@@ -457,8 +469,12 @@ pub struct ChildWorkItem {
     pub child_work_item_id: ChildWorkItemId,
     /// Parent formal work id.
     pub parent_work_item_id: WorkItemId,
+    /// Searchable title captured from the child formal work intent.
+    pub title: WorkTitle,
     /// Source used for split or promotion.
     pub source_ref: SourceWorkRef,
+    /// Optional method definition used at child formal admission.
+    pub method_definition_ref: Option<MethodDefinitionRef>,
     /// Current child work lifecycle state.
     pub work_state: WorkItemState,
     /// Completion evidence reference when the child work is completed.
@@ -473,14 +489,16 @@ impl ChildWorkItem {
         intent: FormalWorkIntent,
         source_ref: SourceWorkRef,
     ) -> Result<Self, DomainError> {
-        FormalWorkPolicy::assert_formal_work(intent, source_ref.clone())?;
+        FormalWorkPolicy::assert_formal_work(intent.clone(), source_ref.clone())?;
         if child_work_item_id.0.trim().is_empty() || parent_id.0.trim().is_empty() {
             return Err(DomainError::MissingRequiredValue);
         }
         Ok(Self {
             child_work_item_id,
             parent_work_item_id: parent_id,
+            title: intent.title,
             source_ref,
+            method_definition_ref: intent.method_definition_ref,
             work_state: WorkItemState::Formalized,
             completion_ref: None,
         })

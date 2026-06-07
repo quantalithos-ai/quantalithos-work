@@ -133,7 +133,44 @@ async fn runner_delegates_publish_work_outbox() {
     WorkOutboxRepository::enqueue(&svc.outbox_repo, record, &seed_uow())
         .await
         .unwrap();
-    let runner = WorkOperationsJobRunner::new(svc);
+    let stores = InMemoryWorkStores::new();
+    let runner = WorkOperationsJobRunner::new(
+        svc,
+        work_application::WorkDerivedMaintenanceService {
+            truth_snapshot_repo: stores.clone(),
+            projection_repo: stores.clone(),
+            unit_of_work: stores.clone(),
+            idempotency: InMemoryIdempotencyRepository::new(),
+            job_results: InMemoryCommandResultRepository::new(),
+            ids: DeterministicWorkIdGenerator::new(),
+        },
+        work_application::WorkReferenceRefreshService {
+            reference_repo: stores.clone(),
+            projection_repo: stores.clone(),
+            member_resolver: work_infra::source_resolvers::FakeMemberReferencePort::new(),
+            method_resolver:
+                work_infra::source_resolvers::FakeMethodDefinitionResolverPort::new(),
+            source_resolver: work_infra::source_resolvers::FakeSourceWorkResolverPort::new(),
+            evidence_resolver: work_infra::source_resolvers::FakeEvidenceResolverPort::new(),
+            process_timebox_resolver:
+                work_infra::source_resolvers::FakeProcessTimeboxResolverPort::new(),
+            clock: work_infra::clock_id::FixedClock::new(fixtures::request_metadata(None).requested_at),
+            unit_of_work: stores.clone(),
+            idempotency: InMemoryIdempotencyRepository::new(),
+            job_results: InMemoryCommandResultRepository::new(),
+            ids: DeterministicWorkIdGenerator::new(),
+        },
+        work_application::WorkReconciliationService {
+            truth_snapshot_repo: stores.clone(),
+            projection_repo: stores.clone(),
+            outbox_repo: InMemoryWorkOutboxRepository::new(),
+            reference_repo: stores,
+            unit_of_work: InMemoryWorkStores::new(),
+            idempotency: InMemoryIdempotencyRepository::new(),
+            job_results: InMemoryCommandResultRepository::new(),
+            ids: DeterministicWorkIdGenerator::new(),
+        },
+    );
 
     let report = runner
         .run_publish_work_outbox(fixtures::publish_outbox_job_input())

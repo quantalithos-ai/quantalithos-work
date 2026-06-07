@@ -313,6 +313,8 @@ pub struct WorkSearchProjection {
     pub work_state: WorkItemState,
     /// Current assignee when available.
     pub assignee_ref: Option<ProjectMemberRef>,
+    /// Source kind used by `WorkSearchCriteria.source_kind`.
+    pub source_kind: Option<SourceWorkKind>,
     /// Source cursor that produced this row.
     pub source_cursor: crate::refs::WorkTruthCursor,
 }
