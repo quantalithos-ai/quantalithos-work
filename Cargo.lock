@@ -180,8 +180,10 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "tokio",
  "work-contracts",
  "work-domain",
+ "work-infra",
 ]
 
 [[package]]
@@ -230,8 +232,10 @@ name = "work-worker"
 version = "0.1.0"
 dependencies = [
  "core-contracts",
+ "tokio",
  "work-application",
  "work-contracts",
+ "work-domain",
  "work-infra",
 ]
 

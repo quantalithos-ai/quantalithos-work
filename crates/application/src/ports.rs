@@ -11,19 +11,20 @@ use work_contracts::views::{
 };
 use work_contracts::{
     BacklogRef, DependencyOrBlockerRef, DerivedWorkViewRef, ExternalEvidenceRef,
-    ExternalSourceSummary, FormalWorkRef, GlobalMemberRef, IterationChangeId,
-    IterationCommitmentId, IterationRef, OutboxFailureReason, OutboxPublicationRef,
-    OutboxRetryReason, ProcessTimeboxRef, ProcessTimeboxSummary, ProjectMemberId, ProjectMemberRef,
-    ProjectOwnerRef, ProjectRef, PromoteResultRef, SourceWorkRef, WorkAuditSubjectRef,
-    WorkBlockerId, WorkBlockerRef, WorkDependencyId, WorkDependencyRef, WorkOutboxId,
-    WorkSearchCriteria, WorkTraceSubjectRef, WorkTruthCursor,
+    ExternalReferenceRef, ExternalSourceSummary, FormalWorkRef, GlobalMemberRef, IterationChangeId,
+    IterationCommitmentId, IterationRef, MethodDefinitionKind, MethodDefinitionRef,
+    OutboxFailureReason, OutboxPublicationRef, OutboxRetryReason, ProcessTimeboxRef,
+    ProcessTimeboxSummary, ProjectMemberId, ProjectMemberRef, ProjectOwnerRef, ProjectRef,
+    PromoteResultRef, SourceWorkRef, WorkAuditSubjectRef, WorkBlockerId, WorkBlockerRef,
+    WorkDependencyId, WorkDependencyRef, WorkOutboxId, WorkSearchCriteria, WorkTraceSubjectRef,
+    WorkTruthCursor,
 };
 use work_domain::{
     Backlog, ChildWorkItem, DependencyChangeRecord, DependencyGraphSnapshot, DerivedWorkViewState,
     Iteration, IterationChangeRecord, IterationCommitment, MemberCapabilitySnapshot,
-    PendingPromoteIntake, ProjectMember, ProjectionFailureReason, PromoteDecisionRecord,
-    PromoteResult, TraceHandoffMarker, WorkAuditTrail, WorkBlocker, WorkDependency, WorkItem,
-    WorkOutboxRecord, WorkTraceRecord,
+    MethodDefinitionSnapshot, PendingPromoteIntake, ProjectMember, ProjectionFailureReason,
+    PromoteDecisionRecord, PromoteResult, ReferenceFailureReason, TraceHandoffMarker,
+    WorkAuditTrail, WorkBlocker, WorkDependency, WorkItem, WorkOutboxRecord, WorkTraceRecord,
 };
 
 /// A repository page returned before public query mapping.
@@ -77,6 +78,15 @@ pub struct MemberCapabilitySnapshotInput {
     pub member_ref: GlobalMemberRef,
     /// Safe capability references returned by the identity boundary.
     pub capability_refs: work_contracts::CapabilityRefSet,
+}
+
+/// Safe resolver input used to build a method definition snapshot.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct MethodDefinitionSnapshotInput {
+    /// Referenced method definition.
+    pub definition_ref: MethodDefinitionRef,
+    /// Definition category used by Work policy.
+    pub definition_kind: MethodDefinitionKind,
 }
 
 /// Safe source summary returned by the source resolver.
@@ -296,6 +306,13 @@ pub trait ProjectMemberRepository: Send + Sync {
         page: PageRequest,
     ) -> Result<Page<ProjectMember>, RepositoryError>;
 
+    /// Lists all Work-owned project responsibilities for one identity member.
+    async fn list_by_member(
+        &self,
+        member_ref: GlobalMemberRef,
+        page: PageRequest,
+    ) -> Result<Page<ProjectMember>, RepositoryError>;
+
     /// Creates one project member responsibility in the current unit of work.
     async fn create(
         &self,
@@ -477,6 +494,20 @@ pub trait PromoteRepository: Send + Sync {
 /// Stores local member snapshots needed by member command flows.
 #[async_trait]
 pub trait ReferenceSnapshotRepository: Send + Sync {
+    /// Loads one cached external reference state.
+    async fn get_reference_state(
+        &self,
+        reference_ref: ExternalReferenceRef,
+    ) -> Result<Option<work_domain::ReferenceResolutionState>, RepositoryError>;
+
+    /// Saves one external reference state in the current unit of work.
+    async fn save_reference_state(
+        &self,
+        state: work_domain::ReferenceResolutionState,
+        expected_version: Option<Version>,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError>;
+
     /// Loads one cached member capability snapshot.
     async fn get_member_snapshot(
         &self,
@@ -487,6 +518,36 @@ pub trait ReferenceSnapshotRepository: Send + Sync {
     async fn save_member_snapshot(
         &self,
         snapshot: MemberCapabilitySnapshot,
+        expected_version: Option<Version>,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError>;
+
+    /// Loads one cached method definition snapshot.
+    async fn get_method_snapshot(
+        &self,
+        definition_ref: MethodDefinitionRef,
+    ) -> Result<Option<MethodDefinitionSnapshot>, RepositoryError>;
+
+    /// Saves one method definition snapshot in the current unit of work.
+    async fn save_method_snapshot(
+        &self,
+        snapshot: MethodDefinitionSnapshot,
+        expected_version: Option<Version>,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError>;
+
+    /// Lists stale or failed references for refresh jobs.
+    async fn list_stale_references(
+        &self,
+        page: PageRequest,
+    ) -> Result<Page<ExternalReferenceRef>, RepositoryError>;
+
+    /// Marks one reference failed while preserving its last successful snapshot.
+    async fn mark_reference_failed(
+        &self,
+        reference_ref: ExternalReferenceRef,
+        reason: ReferenceFailureReason,
+        occurred_at: Timestamp,
         expected_version: Option<Version>,
         uow: &UnitOfWorkHandle,
     ) -> Result<Version, RepositoryError>;
@@ -687,6 +748,20 @@ pub trait ProjectionRepository: Send + Sync {
         view_ref: DerivedWorkViewRef,
     ) -> Result<Option<DerivedWorkViewState>, RepositoryError>;
 
+    /// Lists existing public derived views whose source index depends on one identity member.
+    async fn list_views_affected_by_member(
+        &self,
+        member_ref: GlobalMemberRef,
+        page: PageRequest,
+    ) -> Result<Page<DerivedWorkViewRef>, RepositoryError>;
+
+    /// Lists existing public derived views whose source index depends on one method definition.
+    async fn list_views_affected_by_method(
+        &self,
+        definition_ref: MethodDefinitionRef,
+        page: PageRequest,
+    ) -> Result<Page<DerivedWorkViewRef>, RepositoryError>;
+
     /// Marks affected derived views stale after a truth or snapshot change.
     async fn mark_stale(
         &self,
@@ -731,6 +806,16 @@ pub trait MemberReferencePort: Send + Sync {
         &self,
         member_ref: GlobalMemberRef,
     ) -> Result<MemberCapabilitySnapshotInput, PortError>;
+}
+
+/// Resolves method-definition summaries from the method boundary.
+#[async_trait]
+pub trait MethodDefinitionResolverPort: Send + Sync {
+    /// Resolves safe definition input for one method definition reference.
+    async fn resolve_definition(
+        &self,
+        definition_ref: MethodDefinitionRef,
+    ) -> Result<MethodDefinitionSnapshotInput, PortError>;
 }
 
 /// Resolves safe source summaries from adjacent boundaries.

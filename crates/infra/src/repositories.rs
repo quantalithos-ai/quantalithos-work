@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use core_contracts::metadata::{PageRequest, Version};
+use core_contracts::metadata::{PageRequest, Timestamp, Version};
 use work_application::{
     AuditRepository, BacklogRepository, DependencyRepository, FormalWorkRecord, FormalWorkScope,
     IterationRepository, IterationSummaryViewProjection, MemberWorkViewProjection, Page, PageInfo,
@@ -16,17 +16,17 @@ use work_contracts::views::{
     IterationSummaryView, MemberWorkView, ProjectBoardView, WorkSearchProjection,
 };
 use work_contracts::{
-    BacklogRef, DependencyOrBlockerRef, DerivedWorkViewRef, FormalWorkRef, GlobalMemberRef,
-    IterationRef, ProjectMemberRef, ProjectOwnerRef, ProjectRef, PromoteResultRef, SourceWorkRef,
-    WorkAuditSubjectRef, WorkBlockerRef, WorkDependencyRef, WorkSearchCriteria, WorkTraceId,
-    WorkTraceSubjectRef, WorkTruthCursor,
+    BacklogRef, DependencyOrBlockerRef, DerivedWorkViewRef, ExternalReferenceRef, FormalWorkRef,
+    GlobalMemberRef, IterationRef, MethodDefinitionRef, ProjectMemberRef, ProjectOwnerRef,
+    ProjectRef, PromoteResultRef, SourceWorkRef, WorkAuditSubjectRef, WorkBlockerRef,
+    WorkDependencyRef, WorkSearchCriteria, WorkTraceId, WorkTraceSubjectRef, WorkTruthCursor,
 };
 use work_domain::{
     Backlog, ChildWorkItem, DependencyChangeRecord, DependencyGraphSnapshot, DerivedWorkViewState,
     Iteration, IterationChangeRecord, IterationCommitment, MemberCapabilitySnapshot,
-    PendingPromoteIntake, ProjectMember, ProjectionFailureReason, PromoteDecisionRecord,
-    PromoteResult, TraceHandoffMarker, WorkAuditTrail, WorkBlocker, WorkDependency, WorkItem,
-    WorkTraceRecord,
+    MethodDefinitionSnapshot, PendingPromoteIntake, ProjectMember, ProjectionFailureReason,
+    PromoteDecisionRecord, PromoteResult, ReferenceFailureReason, ReferenceResolutionState,
+    TraceHandoffMarker, WorkAuditTrail, WorkBlocker, WorkDependency, WorkItem, WorkTraceRecord,
 };
 
 /// Shared in-memory fake stores for CORE command service tests.
@@ -56,7 +56,11 @@ struct Stores {
     promote_latest_by_source: HashMap<String, String>,
     promote_decisions: Vec<PromoteDecisionRecord>,
     pending_promote_intakes: Vec<PendingPromoteIntake>,
+    reference_states: HashMap<String, (ReferenceResolutionState, Version)>,
     member_snapshots: HashMap<String, (MemberCapabilitySnapshot, Version)>,
+    method_snapshots: HashMap<String, (MethodDefinitionSnapshot, Version)>,
+    affected_views_by_member: HashMap<String, Vec<DerivedWorkViewRef>>,
+    affected_views_by_method: HashMap<String, Vec<DerivedWorkViewRef>>,
     audit_trails: HashMap<String, (WorkAuditTrail, Version)>,
     traces: Vec<WorkTraceRecord>,
     trace_handoff_markers: HashMap<String, TraceHandoffMarker>,
@@ -167,6 +171,30 @@ impl InMemoryWorkStores {
             .lock()
             .ok()
             .and_then(|state| state.member_snapshots.get(&member_ref.0).cloned())
+    }
+
+    /// Returns one stored reference state and version by external reference key.
+    pub fn reference_state_snapshot(
+        &self,
+        reference_ref: &ExternalReferenceRef,
+    ) -> Option<(ReferenceResolutionState, Version)> {
+        self.state.lock().ok().and_then(|state| {
+            state
+                .reference_states
+                .get(&reference_key(reference_ref))
+                .cloned()
+        })
+    }
+
+    /// Returns one stored method snapshot and version by definition ref.
+    pub fn method_snapshot(
+        &self,
+        definition_ref: &MethodDefinitionRef,
+    ) -> Option<(MethodDefinitionSnapshot, Version)> {
+        self.state
+            .lock()
+            .ok()
+            .and_then(|state| state.method_snapshots.get(&definition_ref.0).cloned())
     }
 
     /// Returns one stored root work item and version by ref.
@@ -372,6 +400,50 @@ impl InMemoryWorkStores {
                 .work_search_rows
                 .insert(project_ref.project_id.0.clone(), rows);
         }
+    }
+
+    /// Seeds already-existing public affected views for one identity member.
+    pub fn seed_affected_views_for_member(
+        &self,
+        member_ref: &GlobalMemberRef,
+        view_refs: Vec<DerivedWorkViewRef>,
+    ) {
+        if let Ok(mut state) = self.state.lock() {
+            state
+                .affected_views_by_member
+                .insert(member_ref.0.clone(), view_refs);
+        }
+    }
+
+    /// Seeds already-existing public affected views for one method definition.
+    pub fn seed_affected_views_for_method(
+        &self,
+        definition_ref: &MethodDefinitionRef,
+        view_refs: Vec<DerivedWorkViewRef>,
+    ) {
+        if let Ok(mut state) = self.state.lock() {
+            state
+                .affected_views_by_method
+                .insert(definition_ref.0.clone(), view_refs);
+        }
+    }
+}
+
+fn reference_key(reference_ref: &ExternalReferenceRef) -> String {
+    match reference_ref {
+        ExternalReferenceRef::Member(member_ref) => format!("member:{}", member_ref.0),
+        ExternalReferenceRef::MethodDefinition(definition_ref) => {
+            format!("method:{}", definition_ref.0)
+        }
+        ExternalReferenceRef::SourceWork(source_ref) => format!(
+            "source:{}:{}",
+            source_ref.external_ref.source_system as u8, source_ref.external_ref.external_id
+        ),
+        ExternalReferenceRef::Evidence(evidence_ref) => format!(
+            "evidence:{}:{}",
+            evidence_ref.external_ref.source_system as u8, evidence_ref.external_ref.external_id
+        ),
+        ExternalReferenceRef::ProcessTimebox(timebox_ref) => format!("timebox:{}", timebox_ref.0),
     }
 }
 
@@ -1328,6 +1400,30 @@ impl ProjectMemberRepository for InMemoryWorkStores {
         })
     }
 
+    async fn list_by_member(
+        &self,
+        member_ref: GlobalMemberRef,
+        _page: PageRequest,
+    ) -> Result<Page<ProjectMember>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let mut items = state
+            .project_members
+            .values()
+            .filter_map(|(member, _)| (member.member_ref == member_ref).then_some(member.clone()))
+            .collect::<Vec<_>>();
+        items.sort_by(|left, right| left.project_member_id.0.cmp(&right.project_member_id.0));
+        Ok(Page {
+            items,
+            page_info: PageInfo {
+                next_page_token: None,
+                has_more: false,
+            },
+        })
+    }
+
     async fn create(
         &self,
         project_member: ProjectMember,
@@ -1382,6 +1478,50 @@ impl ProjectMemberRepository for InMemoryWorkStores {
 
 #[async_trait]
 impl ReferenceSnapshotRepository for InMemoryWorkStores {
+    async fn get_reference_state(
+        &self,
+        reference_ref: ExternalReferenceRef,
+    ) -> Result<Option<ReferenceResolutionState>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(state
+            .reference_states
+            .get(&reference_key(&reference_ref))
+            .map(|(snapshot, _)| snapshot.clone()))
+    }
+
+    async fn save_reference_state(
+        &self,
+        state_snapshot: ReferenceResolutionState,
+        expected_version: Option<Version>,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let key = reference_key(&state_snapshot.reference_ref);
+        match state.reference_states.get_mut(&key) {
+            Some((stored, version)) => {
+                if Some(*version) != expected_version {
+                    return Err(RepositoryError::VersionConflict);
+                }
+                *stored = state_snapshot;
+                *version += 1;
+                Ok(*version)
+            }
+            None => {
+                if expected_version.is_some() {
+                    return Err(RepositoryError::VersionConflict);
+                }
+                state.reference_states.insert(key, (state_snapshot, 1));
+                Ok(1)
+            }
+        }
+    }
+
     async fn get_member_snapshot(
         &self,
         member_ref: GlobalMemberRef,
@@ -1424,6 +1564,109 @@ impl ReferenceSnapshotRepository for InMemoryWorkStores {
                 Ok(1)
             }
         }
+    }
+
+    async fn get_method_snapshot(
+        &self,
+        definition_ref: MethodDefinitionRef,
+    ) -> Result<Option<MethodDefinitionSnapshot>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(state
+            .method_snapshots
+            .get(&definition_ref.0)
+            .map(|(snapshot, _)| snapshot.clone()))
+    }
+
+    async fn save_method_snapshot(
+        &self,
+        snapshot: MethodDefinitionSnapshot,
+        expected_version: Option<Version>,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        match state.method_snapshots.get_mut(&snapshot.definition_ref.0) {
+            Some((stored, version)) => {
+                if Some(*version) != expected_version {
+                    return Err(RepositoryError::VersionConflict);
+                }
+                *stored = snapshot;
+                *version += 1;
+                Ok(*version)
+            }
+            None => {
+                if expected_version.is_some() {
+                    return Err(RepositoryError::VersionConflict);
+                }
+                let key = snapshot.definition_ref.0.clone();
+                state.method_snapshots.insert(key, (snapshot, 1));
+                Ok(1)
+            }
+        }
+    }
+
+    async fn list_stale_references(
+        &self,
+        page: PageRequest,
+    ) -> Result<Page<ExternalReferenceRef>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let mut refs = state
+            .reference_states
+            .values()
+            .filter(|(snapshot, _)| {
+                matches!(
+                    snapshot.resolution_state,
+                    work_contracts::ReferenceResolutionStatus::Stale
+                        | work_contracts::ReferenceResolutionStatus::Failed
+                )
+            })
+            .map(|(snapshot, _)| snapshot.reference_ref.clone())
+            .collect::<Vec<_>>();
+        refs.sort_by_key(reference_key);
+        let start: usize = page
+            .page_token
+            .as_ref()
+            .and_then(|token| token.as_str().parse::<usize>().ok())
+            .unwrap_or(0);
+        let limit = page.limit as usize;
+        let end = start.saturating_add(limit).min(refs.len());
+        let items = refs.get(start..end).unwrap_or(&[]).to_vec();
+        let has_more = end < refs.len();
+        Ok(Page {
+            items,
+            page_info: PageInfo {
+                next_page_token: has_more
+                    .then(|| core_contracts::metadata::PageToken::new(end.to_string())),
+                has_more,
+            },
+        })
+    }
+
+    async fn mark_reference_failed(
+        &self,
+        reference_ref: ExternalReferenceRef,
+        reason: ReferenceFailureReason,
+        occurred_at: Timestamp,
+        expected_version: Option<Version>,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<Version, RepositoryError> {
+        let mut state_snapshot = self
+            .get_reference_state(reference_ref.clone())
+            .await?
+            .unwrap_or_else(|| ReferenceResolutionState::unresolved(reference_ref));
+        state_snapshot
+            .mark_failed(reason, occurred_at)
+            .map_err(|_| RepositoryError::VersionConflict)?;
+        self.save_reference_state(state_snapshot, expected_version, uow)
+            .await
     }
 }
 
@@ -1660,6 +1903,56 @@ impl ProjectionRepository for InMemoryWorkStores {
             .freshness_states
             .get(&freshness_key(&view_ref))
             .cloned())
+    }
+
+    async fn list_views_affected_by_member(
+        &self,
+        member_ref: GlobalMemberRef,
+        _page: PageRequest,
+    ) -> Result<Page<DerivedWorkViewRef>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let mut items = state
+            .affected_views_by_member
+            .get(&member_ref.0)
+            .cloned()
+            .unwrap_or_default();
+        items.sort_by_key(freshness_key);
+        items.dedup();
+        Ok(Page {
+            items,
+            page_info: PageInfo {
+                next_page_token: None,
+                has_more: false,
+            },
+        })
+    }
+
+    async fn list_views_affected_by_method(
+        &self,
+        definition_ref: MethodDefinitionRef,
+        _page: PageRequest,
+    ) -> Result<Page<DerivedWorkViewRef>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let mut items = state
+            .affected_views_by_method
+            .get(&definition_ref.0)
+            .cloned()
+            .unwrap_or_default();
+        items.sort_by_key(freshness_key);
+        items.dedup();
+        Ok(Page {
+            items,
+            page_info: PageInfo {
+                next_page_token: None,
+                has_more: false,
+            },
+        })
     }
 
     async fn mark_stale(

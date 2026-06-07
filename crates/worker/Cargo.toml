@@ -12,3 +12,7 @@ core-contracts.workspace = true
 work-application = { path = "../application" }
 work-contracts = { path = "../contracts" }
 work-infra = { path = "../infra" }
+
+[dev-dependencies]
+tokio.workspace = true
+work-domain = { path = "../domain" }

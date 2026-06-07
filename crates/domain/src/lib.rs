@@ -22,8 +22,9 @@ pub use policies::{
     WorkTruthPolicy,
 };
 pub use project::{
-    Backlog, ChildWorkItem, MemberCapabilitySnapshot, Project, ProjectMember,
-    ReferenceResolutionState, WorkItem,
+    Backlog, ChildWorkItem, MemberCapabilitySnapshot, MethodDefinitionSnapshot, Project,
+    ProjectMember, ReferenceFailureReason, ReferenceResolutionState, ReferenceStaleReason,
+    WorkItem,
 };
 pub use projection::{DerivedWorkViewState, ProjectionFailureReason};
 pub use promote::{PendingPromoteIntake, PromoteDecisionRecord, PromoteResult};

@@ -10,12 +10,12 @@ use crate::{
 use work_contracts::{
     BacklogAvailabilityTarget, BacklogId, BacklogMaintenanceReason, BacklogRef, BacklogState,
     CapabilityRefSet, ChildWorkItemId, EvidenceVerifiedState, ExternalEvidenceRef,
-    ExternalSourceRef, ExternalSourceSystem, FormalWorkIntent, FormalWorkRef, GlobalMemberRef,
-    IterationRef, ProjectId, ProjectLifecycleReason, ProjectLifecycleState, ProjectLifecycleTarget,
-    ProjectMemberId, ProjectMemberReason, ProjectMemberReasonKind, ProjectMemberRef,
-    ProjectMemberResponsibilityState, ProjectOwnerRef, ProjectRef, ProjectResponsibilitySpec,
-    ProjectSpec, SourceWorkRef, WorkItemId, WorkItemState, WorkLifecycleReason,
-    WorkLifecycleTarget,
+    ExternalReferenceRef, FormalWorkIntent, FormalWorkRef, GlobalMemberRef, IterationRef,
+    MethodDefinitionKind, MethodDefinitionRef, ProjectId, ProjectLifecycleReason,
+    ProjectLifecycleState, ProjectLifecycleTarget, ProjectMemberId, ProjectMemberReason,
+    ProjectMemberReasonKind, ProjectMemberRef, ProjectMemberResponsibilityState, ProjectOwnerRef,
+    ProjectRef, ProjectResponsibilitySpec, ProjectSpec, ReferenceResolutionStatus, SourceWorkRef,
+    WorkItemId, WorkItemState, WorkLifecycleReason, WorkLifecycleTarget,
 };
 
 /// Represents the Work-owned project subject and protects its lifecycle boundary.
@@ -586,28 +586,101 @@ impl ChildWorkItem {
     }
 }
 
-/// Tracks whether an external reference is resolved, stale, or failed.
+/// Read-only reason for marking a local reference snapshot stale.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReferenceStaleReason {
+    /// Reference affected by the stale marker.
+    pub reference_ref: ExternalReferenceRef,
+    /// Safe message describing the stale cause.
+    pub message: String,
+}
+
+impl ReferenceStaleReason {
+    /// Builds a stale marker for rejected evidence.
+    pub fn rejected_evidence(evidence_ref: ExternalEvidenceRef) -> Self {
+        Self {
+            reference_ref: ExternalReferenceRef::from_evidence(evidence_ref),
+            message: "evidence rejected".to_owned(),
+        }
+    }
+}
+
+/// Read-only reason for marking a local reference snapshot failed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReferenceFailureReason {
+    /// Reference affected by the failure marker.
+    pub reference_ref: ExternalReferenceRef,
+    /// Safe message describing the resolver or upstream failure.
+    pub message: String,
+}
+
+impl ReferenceFailureReason {
+    /// Builds a failure marker from one resolver or upstream error.
+    pub fn from_resolver_error(reference_ref: ExternalReferenceRef, message: String) -> Self {
+        Self {
+            reference_ref,
+            message,
+        }
+    }
+}
+
+/// Tracks whether an external reference is unresolved, resolved, stale, or failed.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReferenceResolutionState {
     /// External reference being tracked.
-    pub reference_ref: ExternalSourceRef,
-    /// Whether the reference is currently usable.
-    pub resolved: bool,
+    pub reference_ref: ExternalReferenceRef,
+    /// Current reference resolution status.
+    pub resolution_state: ReferenceResolutionStatus,
     /// Last successful resolution timestamp.
     pub last_resolved_at: Option<Timestamp>,
 }
 
 impl ReferenceResolutionState {
-    /// Creates a resolved member-reference state from identity input.
-    pub fn resolved_member(member_ref: &GlobalMemberRef) -> Self {
+    /// Creates an unresolved reference state from one external reference key.
+    pub fn unresolved(reference_ref: ExternalReferenceRef) -> Self {
         Self {
-            reference_ref: ExternalSourceRef {
-                source_system: ExternalSourceSystem::Identity,
-                external_id: member_ref.0.clone(),
-            },
-            resolved: true,
+            reference_ref,
+            resolution_state: ReferenceResolutionStatus::Unresolved,
             last_resolved_at: None,
         }
+    }
+
+    /// Creates a resolved reference state for a snapshot already accepted by Work.
+    pub fn resolved(reference_ref: ExternalReferenceRef) -> Self {
+        Self {
+            reference_ref,
+            resolution_state: ReferenceResolutionStatus::Resolved,
+            last_resolved_at: None,
+        }
+    }
+
+    /// Marks the reference resolved without storing any external body.
+    pub fn mark_resolved(&mut self, resolved_at: Timestamp) -> Result<(), DomainError> {
+        self.resolution_state = ReferenceResolutionStatus::Resolved;
+        self.last_resolved_at = Some(resolved_at);
+        Ok(())
+    }
+
+    /// Marks the reference stale while preserving the last resolved timestamp.
+    pub fn mark_stale(&mut self, reason: ReferenceStaleReason) -> Result<(), DomainError> {
+        if reason.reference_ref != self.reference_ref {
+            return Err(DomainError::RefMismatch);
+        }
+        self.resolution_state = ReferenceResolutionStatus::Stale;
+        Ok(())
+    }
+
+    /// Marks the reference failed while preserving the last successful snapshot metadata.
+    pub fn mark_failed(
+        &mut self,
+        reason: ReferenceFailureReason,
+        _occurred_at: Timestamp,
+    ) -> Result<(), DomainError> {
+        if reason.reference_ref != self.reference_ref {
+            return Err(DomainError::RefMismatch);
+        }
+        self.resolution_state = ReferenceResolutionStatus::Failed;
+        Ok(())
     }
 }
 
@@ -632,7 +705,9 @@ impl MemberCapabilitySnapshot {
             return Err(DomainError::MissingRequiredValue);
         }
         Ok(Self {
-            snapshot_state: ReferenceResolutionState::resolved_member(&member_ref),
+            snapshot_state: ReferenceResolutionState::resolved(ExternalReferenceRef::from_member(
+                member_ref.clone(),
+            )),
             member_ref,
             capability_refs,
         })
@@ -644,5 +719,50 @@ impl MemberCapabilitySnapshot {
             .refs
             .iter()
             .all(|required| self.capability_refs.refs.contains(required))
+    }
+
+    /// Marks the member snapshot stale while preserving its safe capability summary.
+    pub fn mark_stale(&mut self, reason: ReferenceStaleReason) -> Result<(), DomainError> {
+        self.snapshot_state.mark_stale(reason)
+    }
+}
+
+/// Stores a safe local summary of a method-library definition.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MethodDefinitionSnapshot {
+    /// Referenced method definition.
+    pub definition_ref: MethodDefinitionRef,
+    /// Definition category.
+    pub definition_kind: MethodDefinitionKind,
+    /// Resolution state of this snapshot.
+    pub snapshot_state: ReferenceResolutionState,
+}
+
+impl MethodDefinitionSnapshot {
+    /// Builds a snapshot from safe method-library input.
+    pub fn from_method_library(
+        definition_ref: MethodDefinitionRef,
+        definition_kind: MethodDefinitionKind,
+    ) -> Result<Self, DomainError> {
+        if definition_ref.0.trim().is_empty() {
+            return Err(DomainError::MissingRequiredValue);
+        }
+        Ok(Self {
+            definition_ref: definition_ref.clone(),
+            definition_kind,
+            snapshot_state: ReferenceResolutionState::resolved(
+                ExternalReferenceRef::from_method_definition(definition_ref),
+            ),
+        })
+    }
+
+    /// Returns whether this snapshot matches one formal work intent method reference.
+    pub fn matches(&self, intent: &FormalWorkIntent) -> bool {
+        intent.method_definition_ref.as_ref() == Some(&self.definition_ref)
+    }
+
+    /// Marks the method snapshot stale while preserving its safe summary.
+    pub fn mark_stale(&mut self, reason: ReferenceStaleReason) -> Result<(), DomainError> {
+        self.snapshot_state.mark_stale(reason)
     }
 }

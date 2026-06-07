@@ -11,9 +11,9 @@ use work_application::{
     ProcessTimeboxResolverPort, QueryActorMemberRef, SourceWorkResolution, SourceWorkResolverPort,
 };
 use work_contracts::{
-    CapabilityRefSet, EvidenceVerifiedState, ExternalEvidenceRef, ExternalSourceRef,
-    ExternalSourceSummary, ExternalSourceSystem, GlobalMemberRef, ProcessTimeboxRef,
-    ProcessTimeboxSummary, ProjectRef, SafeSummaryText, SourceDigest, SourceWorkRef,
+    CapabilityRefSet, EvidenceVerifiedState, ExternalEvidenceRef, ExternalReferenceRef,
+    ExternalSourceSummary, GlobalMemberRef, ProcessTimeboxRef, ProcessTimeboxSummary, ProjectRef,
+    ReferenceResolutionStatus, SafeSummaryText, SourceDigest, SourceWorkRef,
 };
 use work_domain::ReferenceResolutionState;
 
@@ -250,14 +250,15 @@ impl EvidenceResolverPort for FakeEvidenceResolverPort {
             .unwrap_or(EvidenceResolverOutcome::Unresolved)
         {
             EvidenceResolverOutcome::Success(verified_state) => Ok(EvidenceResolution {
-                evidence_ref,
+                evidence_ref: evidence_ref.clone(),
                 verified_state,
                 reference_state: ReferenceResolutionState {
-                    reference_ref: ExternalSourceRef {
-                        source_system: ExternalSourceSystem::Artifact,
-                        external_id: "evidence-resolution".to_owned(),
+                    reference_ref: ExternalReferenceRef::from_evidence(evidence_ref),
+                    resolution_state: if verified_state == EvidenceVerifiedState::Verified {
+                        ReferenceResolutionStatus::Resolved
+                    } else {
+                        ReferenceResolutionStatus::Unresolved
                     },
-                    resolved: verified_state == EvidenceVerifiedState::Verified,
                     last_resolved_at: None,
                 },
             }),
