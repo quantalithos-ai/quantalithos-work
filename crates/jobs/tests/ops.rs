@@ -1,10 +1,13 @@
 use work_application::{
-    BacklogRepository, ProjectMemberRepository, ProjectRepository, ProjectionRepository,
-    ReferenceSnapshotRepository, WorkItemRepository,
+    AuditRepository, BacklogRepository, ProjectMemberRepository, ProjectRepository,
+    ProjectionRepository, ReferenceSnapshotRepository, WorkItemRepository,
 };
 use work_contracts::fixtures;
-use work_contracts::{DerivedFreshnessState, DerivedWorkViewRef, ExternalReferenceRef, FormalWorkRef};
-use work_domain::{Backlog, Project, ProjectMember, WorkItem};
+use work_contracts::{
+    DerivedFreshnessState, DerivedWorkViewRef, ExternalReferenceRef, FormalWorkRef,
+    WorkJobFailureRef,
+};
+use work_domain::{Backlog, Project, ProjectMember, WorkItem, WorkTraceRecord};
 use work_infra::{
     clock_id::{DeterministicWorkIdGenerator, FixedClock},
     command_result_store::InMemoryCommandResultRepository,
@@ -12,8 +15,9 @@ use work_infra::{
     outbox_store::InMemoryWorkOutboxRepository,
     repositories::InMemoryWorkStores,
     source_resolvers::{
-        FakeEvidenceResolverPort, FakeMemberReferencePort, FakeMethodDefinitionResolverPort,
-        FakeProcessTimeboxResolverPort, FakeSourceWorkResolverPort, MemberResolverOutcome,
+        FakeArchiveHandoffPort, FakeEvidenceResolverPort, FakeMemberReferencePort,
+        FakeMethodDefinitionResolverPort, FakeProcessTimeboxResolverPort,
+        FakeSourceWorkResolverPort, FakeTraceHandoffPort, MemberResolverOutcome,
         MethodDefinitionResolverOutcome,
     },
 };
@@ -114,12 +118,78 @@ fn reconciliation_service(
     }
 }
 
+fn trace_handoff_service(
+    stores: InMemoryWorkStores,
+) -> (
+    work_application::WorkTraceHandoffService<
+        InMemoryWorkStores,
+        InMemoryWorkOutboxRepository,
+        FakeTraceHandoffPort,
+        FixedClock,
+        InMemoryWorkStores,
+        InMemoryIdempotencyRepository,
+        InMemoryCommandResultRepository,
+        DeterministicWorkIdGenerator,
+    >,
+    FakeTraceHandoffPort,
+) {
+    let handoff = FakeTraceHandoffPort::new();
+    let service = work_application::WorkTraceHandoffService {
+        audit_repo: stores.clone(),
+        outbox_repo: InMemoryWorkOutboxRepository::new(),
+        trace_handoff: handoff.clone(),
+        clock: FixedClock::new(fixtures::request_metadata(None).requested_at),
+        unit_of_work: stores,
+        idempotency: InMemoryIdempotencyRepository::new(),
+        job_results: InMemoryCommandResultRepository::new(),
+        ids: DeterministicWorkIdGenerator::new(),
+    };
+    (service, handoff)
+}
+
+fn archive_handoff_service(
+    stores: InMemoryWorkStores,
+) -> (
+    work_application::WorkArchiveHandoffService<
+        InMemoryWorkStores,
+        InMemoryWorkStores,
+        InMemoryWorkOutboxRepository,
+        FakeArchiveHandoffPort,
+        FixedClock,
+        InMemoryWorkStores,
+        InMemoryIdempotencyRepository,
+        InMemoryCommandResultRepository,
+        DeterministicWorkIdGenerator,
+    >,
+    FakeArchiveHandoffPort,
+) {
+    let handoff = FakeArchiveHandoffPort::new();
+    let service = work_application::WorkArchiveHandoffService {
+        archive_summary_repo: stores.clone(),
+        audit_repo: stores.clone(),
+        outbox_repo: InMemoryWorkOutboxRepository::new(),
+        archive_handoff: handoff.clone(),
+        clock: FixedClock::new(fixtures::request_metadata(None).requested_at),
+        unit_of_work: stores,
+        idempotency: InMemoryIdempotencyRepository::new(),
+        job_results: InMemoryCommandResultRepository::new(),
+        ids: DeterministicWorkIdGenerator::new(),
+    };
+    (service, handoff)
+}
+
 async fn seed_project_family(stores: &InMemoryWorkStores) {
     let uow = seed_uow();
     let actor = fixtures::actor_context().actor_ref().clone();
-    let project = Project::create(fixtures::project_id(), fixtures::project_spec(), actor.clone())
+    let project = Project::create(
+        fixtures::project_id(),
+        fixtures::project_spec(),
+        actor.clone(),
+    )
+    .unwrap();
+    ProjectRepository::create(stores, project, &uow)
+        .await
         .unwrap();
-    ProjectRepository::create(stores, project, &uow).await.unwrap();
 
     let backlog = Backlog::open_for_project(
         fixtures::backlog_id(),
@@ -127,7 +197,9 @@ async fn seed_project_family(stores: &InMemoryWorkStores) {
         actor.clone(),
     )
     .unwrap();
-    BacklogRepository::create(stores, backlog, &uow).await.unwrap();
+    BacklogRepository::create(stores, backlog, &uow)
+        .await
+        .unwrap();
 
     let member = ProjectMember::assign(
         fixtures::project_member_id(),
@@ -153,6 +225,19 @@ async fn seed_project_family(stores: &InMemoryWorkStores) {
         .unwrap();
 }
 
+async fn seed_trace_record(stores: &InMemoryWorkStores) {
+    let uow = seed_uow();
+    let trace = WorkTraceRecord::from_truth_change(
+        fixtures::trace_id(),
+        fixtures::project_created_change(),
+        fixtures::trace_context_ref(),
+    )
+    .expect("trace");
+    AuditRepository::append_trace(stores, trace, &uow)
+        .await
+        .expect("seed trace");
+}
+
 #[tokio::test]
 async fn refresh_job_marks_repository_returned_affected_views_stale() {
     let stores = stores();
@@ -165,13 +250,17 @@ async fn refresh_job_marks_repository_returned_affected_views_stale() {
     );
     stores.seed_affected_views_for_reference(
         &ExternalReferenceRef::from_member(fixtures::global_member_ref()),
-        vec![DerivedWorkViewRef::member_work(fixtures::project_member_ref())],
+        vec![DerivedWorkViewRef::member_work(
+            fixtures::project_member_ref(),
+        )],
     );
     let runner = WorkOperationsJobRunner::new(
         outbox_service(stores.clone()),
         rebuild_service(stores.clone()),
         refresh,
         reconciliation_service(stores.clone()),
+        trace_handoff_service(stores.clone()).0,
+        archive_handoff_service(stores.clone()).0,
     );
     let input = work_contracts::RefreshExternalReferenceSnapshotsJobInput {
         metadata: fixtures::job_metadata("job-refresh-existing-views"),
@@ -214,6 +303,8 @@ async fn refresh_job_with_empty_affected_view_page_writes_no_stale_marker() {
         rebuild_service(stores.clone()),
         refresh,
         reconciliation_service(stores.clone()),
+        trace_handoff_service(stores.clone()).0,
+        archive_handoff_service(stores.clone()).0,
     );
     let input = work_contracts::RefreshExternalReferenceSnapshotsJobInput {
         metadata: fixtures::job_metadata("job-refresh-empty-views"),
@@ -311,6 +402,8 @@ async fn refresh_job_existing_reference_and_snapshots_use_versioned_reads() {
         rebuild_service(stores.clone()),
         refresh,
         reconciliation_service(stores.clone()),
+        trace_handoff_service(stores.clone()).0,
+        archive_handoff_service(stores.clone()).0,
     );
     let input = work_contracts::RefreshExternalReferenceSnapshotsJobInput {
         metadata: fixtures::job_metadata("job-refresh-versioned-update"),
@@ -384,6 +477,8 @@ async fn refresh_job_duplicate_returns_stored_report() {
         rebuild_service(stores.clone()),
         refresh,
         reconciliation_service(stores.clone()),
+        trace_handoff_service(stores.clone()).0,
+        archive_handoff_service(stores.clone()).0,
     );
     let input = work_contracts::RefreshExternalReferenceSnapshotsJobInput {
         metadata: fixtures::job_metadata("job-refresh-duplicate"),
@@ -434,6 +529,8 @@ async fn reconciliation_job_is_read_only() {
         rebuild_service(stores.clone()),
         refresh_service(stores.clone()).0,
         reconciliation_service(stores.clone()),
+        trace_handoff_service(stores.clone()).0,
+        archive_handoff_service(stores.clone()).0,
     );
 
     let report = runner
@@ -441,7 +538,10 @@ async fn reconciliation_job_is_read_only() {
         .await
         .expect("reconcile succeeds");
 
-    assert_eq!(before_project, stores.project_snapshot(&fixtures::project_ref()));
+    assert_eq!(
+        before_project,
+        stores.project_snapshot(&fixtures::project_ref())
+    );
     assert_eq!(before_stale_count, stores.stale_marks().len());
     assert_eq!(report.projection_gaps.len(), 1);
 }
@@ -467,6 +567,8 @@ async fn rebuild_job_replaces_projection_from_committed_truth() {
         rebuild_service(stores.clone()),
         refresh_service(stores.clone()).0,
         reconciliation_service(stores.clone()),
+        trace_handoff_service(stores.clone()).0,
+        archive_handoff_service(stores.clone()).0,
     );
 
     let report = runner
@@ -486,10 +588,12 @@ async fn rebuild_job_replaces_projection_from_committed_truth() {
     .await
     .expect("search rows");
     assert_eq!(report.changed_count, 2);
-    assert!(search_rows
-        .items
-        .iter()
-        .any(|row| row.title == fixtures::formal_work_intent().title));
+    assert!(
+        search_rows
+            .items
+            .iter()
+            .any(|row| row.title == fixtures::formal_work_intent().title)
+    );
 }
 
 fn outbox_service(
@@ -528,4 +632,134 @@ fn outbox_service(
         job_results: InMemoryCommandResultRepository::new(),
         ids: DeterministicWorkIdGenerator::new(),
     }
+}
+
+#[tokio::test]
+async fn trace_handoff_job_saves_marker_and_replays_duplicate() {
+    let stores = stores();
+    seed_trace_record(&stores).await;
+    let (trace_handoff, handoff_port) = trace_handoff_service(stores.clone());
+    let runner = WorkOperationsJobRunner::new(
+        outbox_service(stores.clone()),
+        rebuild_service(stores.clone()),
+        refresh_service(stores.clone()).0,
+        reconciliation_service(stores.clone()),
+        trace_handoff,
+        archive_handoff_service(stores.clone()).0,
+    );
+
+    let first = runner
+        .run_prepare_work_trace_handoff(fixtures::trace_handoff_job_input())
+        .await
+        .expect("trace handoff succeeds");
+    let second = runner
+        .run_prepare_work_trace_handoff(fixtures::trace_handoff_job_input())
+        .await
+        .expect("duplicate trace handoff");
+
+    assert_eq!(first.scanned_count, 1);
+    assert_eq!(first.changed_count, 1);
+    assert!(first.failed_refs.is_empty());
+    assert_eq!(handoff_port.intents().len(), 1);
+    assert_eq!(second.failed_refs, first.failed_refs);
+    assert_eq!(
+        second.receipt.expect("duplicate receipt").idempotency,
+        work_contracts::IdempotencyResultView::Duplicate
+    );
+}
+
+#[tokio::test]
+async fn trace_handoff_job_reports_typed_failure_without_body() {
+    let stores = stores();
+    seed_trace_record(&stores).await;
+    let (trace_handoff, handoff_port) = trace_handoff_service(stores.clone());
+    handoff_port.push_result(Err(work_application::PortError::Unavailable));
+    let runner = WorkOperationsJobRunner::new(
+        outbox_service(stores.clone()),
+        rebuild_service(stores.clone()),
+        refresh_service(stores.clone()).0,
+        reconciliation_service(stores.clone()),
+        trace_handoff,
+        archive_handoff_service(stores.clone()).0,
+    );
+
+    let report = runner
+        .run_prepare_work_trace_handoff(fixtures::trace_handoff_job_input())
+        .await
+        .expect("trace handoff failure stays in report");
+
+    assert_eq!(report.scanned_count, 1);
+    assert_eq!(report.changed_count, 0);
+    assert_eq!(
+        report.failed_refs,
+        vec![WorkJobFailureRef::TraceHandoff {
+            trace_id: fixtures::trace_id(),
+            subject_ref: fixtures::project_trace_subject(),
+            target_ref: fixtures::trace_handoff_target_ref(),
+        }]
+    );
+}
+
+#[tokio::test]
+async fn archive_handoff_job_saves_marker() {
+    let stores = stores();
+    seed_project_family(&stores).await;
+    seed_trace_record(&stores).await;
+    let (archive_handoff, handoff_port) = archive_handoff_service(stores.clone());
+    let runner = WorkOperationsJobRunner::new(
+        outbox_service(stores.clone()),
+        rebuild_service(stores.clone()),
+        refresh_service(stores.clone()).0,
+        reconciliation_service(stores.clone()),
+        trace_handoff_service(stores.clone()).0,
+        archive_handoff,
+    );
+
+    let report = runner
+        .run_prepare_archive_handoff(fixtures::archive_handoff_job_input())
+        .await
+        .expect("archive handoff succeeds");
+
+    assert_eq!(report.changed_count, 1);
+    assert!(report.failed_refs.is_empty());
+    assert_eq!(handoff_port.intents().len(), 1);
+}
+
+#[tokio::test]
+async fn archive_handoff_job_reports_typed_failure_and_replays_duplicate() {
+    let stores = stores();
+    seed_project_family(&stores).await;
+    seed_trace_record(&stores).await;
+    let (archive_handoff, handoff_port) = archive_handoff_service(stores.clone());
+    handoff_port.push_result(Err(work_application::PortError::Unavailable));
+    let runner = WorkOperationsJobRunner::new(
+        outbox_service(stores.clone()),
+        rebuild_service(stores.clone()),
+        refresh_service(stores.clone()).0,
+        reconciliation_service(stores.clone()),
+        trace_handoff_service(stores.clone()).0,
+        archive_handoff,
+    );
+
+    let first = runner
+        .run_prepare_archive_handoff(fixtures::archive_handoff_job_input())
+        .await
+        .expect("archive failure stays in report");
+    let second = runner
+        .run_prepare_archive_handoff(fixtures::archive_handoff_job_input())
+        .await
+        .expect("archive duplicate replay");
+
+    assert_eq!(
+        first.failed_refs,
+        vec![WorkJobFailureRef::ArchiveHandoff {
+            archive_scope: fixtures::archive_handoff_scope(),
+            target_ref: fixtures::archive_handoff_target_ref(),
+        }]
+    );
+    assert_eq!(second.failed_refs, first.failed_refs);
+    assert_eq!(
+        second.receipt.expect("duplicate receipt").idempotency,
+        work_contracts::IdempotencyResultView::Duplicate
+    );
 }

@@ -26,20 +26,21 @@ pub use idempotency::{
 pub use iteration::IterationCommandService;
 pub use member::ProjectMemberCommandService;
 pub use ops::{
-    WorkDerivedMaintenanceService, WorkReconciliationService, WorkReferenceRefreshService,
+    WorkArchiveHandoffService, WorkDerivedMaintenanceService, WorkReconciliationService,
+    WorkReferenceRefreshService, WorkTraceHandoffService,
 };
 pub use outbox::WorkOutboxPublishService;
 pub use ports::{
-    ActorMemberResolverPort, AuditRepository, BacklogRepository, ClockPort, DependencyRepository,
-    EvidenceResolution, EvidenceResolverPort, FormalWorkRecord, FormalWorkScope, IdGeneratorPort,
-    IterationRepository, IterationSummaryViewProjection, MemberCapabilitySnapshotInput,
-    MemberReferencePort, MemberWorkViewProjection, MethodDefinitionResolverPort,
-    MethodDefinitionSnapshotInput, Page, PageInfo, PortError, ProcessTimeboxResolution,
-    ProcessTimeboxResolverPort, ProjectBoardViewProjection, ProjectMemberRepository,
-    ProjectRepository, ProjectionRepository, PromoteRepository, QueryActorMemberRef,
-    ReferenceSnapshotRepository, RepositoryError, SourceWorkResolution, SourceWorkResolverPort,
-    Versioned, WorkItemRepository, WorkOutboxPublisherPort, WorkOutboxRepository,
-    WorkTruthSnapshotRepository,
+    ActorMemberResolverPort, ArchiveHandoffPort, ArchiveSummaryRepository, AuditRepository,
+    BacklogRepository, ClockPort, DependencyRepository, EvidenceResolution, EvidenceResolverPort,
+    FormalWorkRecord, FormalWorkScope, IdGeneratorPort, IterationRepository,
+    IterationSummaryViewProjection, MemberCapabilitySnapshotInput, MemberReferencePort,
+    MemberWorkViewProjection, MethodDefinitionResolverPort, MethodDefinitionSnapshotInput, Page,
+    PageInfo, PortError, ProcessTimeboxResolution, ProcessTimeboxResolverPort,
+    ProjectBoardViewProjection, ProjectMemberRepository, ProjectRepository, ProjectionRepository,
+    PromoteRepository, QueryActorMemberRef, ReferenceSnapshotRepository, RepositoryError,
+    SourceWorkResolution, SourceWorkResolverPort, TraceHandoffPort, Versioned, WorkItemRepository,
+    WorkOutboxPublisherPort, WorkOutboxRepository, WorkTruthSnapshotRepository,
 };
 pub use project::ProjectCommandService;
 pub use promote::PromoteCommandService;

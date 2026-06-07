@@ -1307,6 +1307,8 @@ pub struct TraceHandoffIntent {
 pub struct ArchiveHandoffScope {
     /// Scope kind.
     pub scope_kind: ArchiveHandoffScopeKind,
+    /// Project scope when archiving one project cursor.
+    pub project_ref: Option<ProjectRef>,
     /// Work subjects included in the scope.
     pub subject_refs: Vec<WorkTraceSubjectRef>,
     /// Optional truth cursor covered by this handoff.
@@ -1340,6 +1342,33 @@ pub enum ArchiveHandoffTargetKind {
     ArchiveStore,
     /// Compliance export boundary.
     ComplianceExport,
+}
+
+/// Failed item identity recorded in a Work job report.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum WorkJobFailureRef {
+    /// Failed external reference refresh item.
+    ExternalReference(ExternalReferenceRef),
+    /// Failed trace handoff item.
+    TraceHandoff {
+        /// Trace record that failed handoff.
+        trace_id: WorkTraceId,
+        /// Trace subject selected by the job.
+        subject_ref: WorkTraceSubjectRef,
+        /// Handoff target that rejected or failed the handoff.
+        target_ref: TraceHandoffTargetRef,
+    },
+    /// Failed archive handoff item.
+    ArchiveHandoff {
+        /// Archive scope requested by the job.
+        archive_scope: ArchiveHandoffScope,
+        /// Archive target that rejected or failed the handoff.
+        target_ref: ArchiveHandoffTargetRef,
+    },
+    /// Failed outbox publication item.
+    WorkOutbox(WorkOutboxId),
+    /// Failed derived-view rebuild item.
+    DerivedWorkView(DerivedWorkViewRef),
 }
 
 /// Scope for refreshing external references.

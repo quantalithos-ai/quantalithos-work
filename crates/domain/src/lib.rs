@@ -9,7 +9,10 @@ mod project;
 mod projection;
 mod promote;
 
-pub use audit::{TraceHandoffMarker, WorkAuditTrail, WorkOutboxRecord, WorkTraceRecord};
+pub use audit::{
+    ArchiveHandoffIntent, ArchiveHandoffMarker, TraceHandoffMarker, WorkArchiveSummarySet,
+    WorkAuditTrail, WorkOutboxRecord, WorkTraceRecord,
+};
 pub use dependency::{
     DependencyChangeRecord, DependencyGraphPolicy, DependencyGraphSnapshot, WorkBlocker,
     WorkDependency,

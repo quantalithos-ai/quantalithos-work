@@ -16,16 +16,17 @@ use work_contracts::{
     IterationCommitmentId, IterationRef, MethodDefinitionKind, MethodDefinitionRef,
     OutboxFailureReason, OutboxPublicationRef, OutboxRetryReason, ProcessTimeboxRef,
     ProcessTimeboxSummary, ProjectMemberId, ProjectMemberRef, ProjectOwnerRef, ProjectRef,
-    PromoteResultRef, SourceWorkRef, WorkAuditSubjectRef, WorkBlockerId, WorkBlockerRef,
-    WorkDependencyId, WorkDependencyRef, WorkOutboundPublication, WorkOutboxId, WorkSearchCriteria,
-    WorkTraceSubjectRef, WorkTruthCursor,
+    PromoteResultRef, SourceWorkRef, TraceHandoffIntent, TraceHandoffRef, WorkAuditSubjectRef,
+    WorkBlockerId, WorkBlockerRef, WorkDependencyId, WorkDependencyRef, WorkOutboundPublication,
+    WorkOutboxId, WorkSearchCriteria, WorkTraceSubjectRef, WorkTruthCursor,
 };
 use work_domain::{
-    Backlog, ChildWorkItem, DependencyChangeRecord, DependencyGraphSnapshot, DerivedWorkViewState,
-    Iteration, IterationChangeRecord, IterationCommitment, MemberCapabilitySnapshot,
-    MethodDefinitionSnapshot, PendingPromoteIntake, ProjectMember, ProjectionFailureReason,
-    PromoteDecisionRecord, PromoteResult, ReferenceFailureReason, TraceHandoffMarker,
-    WorkAuditTrail, WorkBlocker, WorkDependency, WorkItem, WorkOutboxRecord, WorkTraceRecord,
+    ArchiveHandoffIntent, ArchiveHandoffMarker, Backlog, ChildWorkItem, DependencyChangeRecord,
+    DependencyGraphSnapshot, DerivedWorkViewState, Iteration, IterationChangeRecord,
+    IterationCommitment, MemberCapabilitySnapshot, MethodDefinitionSnapshot, PendingPromoteIntake,
+    ProjectMember, ProjectionFailureReason, PromoteDecisionRecord, PromoteResult,
+    ReferenceFailureReason, TraceHandoffMarker, WorkArchiveSummarySet, WorkAuditTrail, WorkBlocker,
+    WorkDependency, WorkItem, WorkOutboxRecord, WorkTraceRecord,
 };
 
 /// A repository page returned before public query mapping.
@@ -696,6 +697,13 @@ pub trait AuditRepository: Send + Sync {
         &self,
         handoff_ref: work_contracts::TraceHandoffRef,
     ) -> Result<Option<TraceHandoffMarker>, RepositoryError>;
+
+    /// Saves an archive handoff marker inside the current unit of work.
+    async fn save_archive_handoff_marker(
+        &self,
+        marker: ArchiveHandoffMarker,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<(), RepositoryError>;
 }
 
 /// Stores Work outbox records and publication state.
@@ -871,6 +879,26 @@ pub trait WorkTruthSnapshotRepository: Send + Sync {
     ) -> Result<WorkTruthCursor, RepositoryError>;
 }
 
+/// Reads body-free Work summaries for archive handoff jobs.
+#[async_trait]
+pub trait ArchiveSummaryRepository: Send + Sync {
+    /// Loads archive summaries for explicitly listed Work trace subjects.
+    async fn load_subject_archive_summaries(
+        &self,
+        subject_refs: Vec<WorkTraceSubjectRef>,
+        source_cursor: Option<WorkTruthCursor>,
+        page: PageRequest,
+    ) -> Result<WorkArchiveSummarySet, RepositoryError>;
+
+    /// Loads archive summaries for one project up to a committed truth cursor.
+    async fn load_project_archive_summaries(
+        &self,
+        project_ref: ProjectRef,
+        source_cursor: WorkTruthCursor,
+        page: PageRequest,
+    ) -> Result<WorkArchiveSummarySet, RepositoryError>;
+}
+
 /// Resolves the current query actor into a safe identity member ref.
 #[async_trait]
 pub trait ActorMemberResolverPort: Send + Sync {
@@ -909,6 +937,26 @@ pub trait SourceWorkResolverPort: Send + Sync {
         &self,
         source_ref: SourceWorkRef,
     ) -> Result<SourceWorkResolution, PortError>;
+}
+
+/// Prepares Work trace records for observability handoff.
+#[async_trait]
+pub trait TraceHandoffPort: Send + Sync {
+    /// Creates a handoff reference for trace records.
+    async fn prepare_trace_handoff(
+        &self,
+        intent: TraceHandoffIntent,
+    ) -> Result<TraceHandoffRef, PortError>;
+}
+
+/// Prepares archive handoff markers without owning archive storage.
+#[async_trait]
+pub trait ArchiveHandoffPort: Send + Sync {
+    /// Creates an archive handoff reference.
+    async fn prepare_archive_handoff(
+        &self,
+        intent: ArchiveHandoffIntent,
+    ) -> Result<work_contracts::ArchiveHandoffRef, PortError>;
 }
 
 /// Resolves completion or governance evidence from adjacent boundaries.

@@ -2,10 +2,11 @@
 
 use core_contracts::metadata::Timestamp;
 use work_contracts::{
-    OutboxFailureReason, OutboxPublicationRef, OutboxRetryReason, TraceHandoffIntent,
-    TraceHandoffRef, TraceHandoffTargetRef, WorkAuditSubjectRef, WorkAuditTrailId,
-    WorkOutboxEventKind, WorkOutboxId, WorkOutboxSourceRef, WorkTraceContextRef, WorkTraceId,
-    WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange,
+    ArchiveHandoffRef, ArchiveHandoffScope, ArchiveHandoffTargetRef, OutboxFailureReason,
+    OutboxPublicationRef, OutboxRetryReason, TraceHandoffIntent, TraceHandoffRef,
+    TraceHandoffTargetRef, WorkAuditSubjectRef, WorkAuditTrailId, WorkOutboxEventKind,
+    WorkOutboxId, WorkOutboxSourceRef, WorkTraceContextRef, WorkTraceId, WorkTraceRecordRefSet,
+    WorkTraceSubjectRef, WorkTruthChange, WorkTruthCursor,
 };
 
 use crate::DomainError;
@@ -71,6 +72,63 @@ impl TraceHandoffMarker {
         Ok(Self {
             trace_id,
             handoff_ref,
+        })
+    }
+}
+
+/// Carries Work summaries prepared for archive handoff.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArchiveHandoffIntent {
+    /// Work summaries eligible for archive handoff.
+    pub summaries: WorkArchiveSummarySet,
+    /// Archive target reference.
+    pub target_ref: ArchiveHandoffTargetRef,
+}
+
+impl ArchiveHandoffIntent {
+    /// Builds an archive handoff intent from committed Work summaries.
+    pub fn from_work_summaries(
+        summaries: WorkArchiveSummarySet,
+        target_ref: ArchiveHandoffTargetRef,
+    ) -> Result<Self, DomainError> {
+        Ok(Self {
+            summaries,
+            target_ref,
+        })
+    }
+}
+
+/// Summarizes Work-owned records eligible for archive handoff.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkArchiveSummarySet {
+    /// Archive scope covered by the summaries.
+    pub archive_scope: ArchiveHandoffScope,
+    /// Work truth refs included in this handoff.
+    pub truth_refs: Vec<WorkTraceSubjectRef>,
+    /// Trace records related to the truth refs.
+    pub trace_refs: Vec<WorkTraceId>,
+    /// Source cursor covered by the summary set.
+    pub source_cursor: WorkTruthCursor,
+}
+
+/// Records that an archive handoff was prepared.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArchiveHandoffMarker {
+    /// Archive scope covered by the marker.
+    pub archive_scope: ArchiveHandoffScope,
+    /// External archive handoff reference returned by the port.
+    pub archive_ref: ArchiveHandoffRef,
+}
+
+impl ArchiveHandoffMarker {
+    /// Records a successful archive handoff result.
+    pub fn from_archive_ref(
+        archive_scope: ArchiveHandoffScope,
+        archive_ref: ArchiveHandoffRef,
+    ) -> Result<Self, DomainError> {
+        Ok(Self {
+            archive_scope,
+            archive_ref,
         })
     }
 }

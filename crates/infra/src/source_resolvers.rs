@@ -1,23 +1,25 @@
-//! Fake external resolvers for Work P0 service tests.
+//! Fake external resolvers and handoff adapters for Work P0 service tests.
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use core_contracts::actor::ActorContext;
 use work_application::{
-    ActorMemberResolverPort, EvidenceResolution, EvidenceResolverPort,
+    ActorMemberResolverPort, ArchiveHandoffPort, EvidenceResolution, EvidenceResolverPort,
     MemberCapabilitySnapshotInput, MemberReferencePort, MethodDefinitionResolverPort,
-    MethodDefinitionSnapshotInput, PortError, ProcessTimeboxResolution,
-    ProcessTimeboxResolverPort, QueryActorMemberRef, SourceWorkResolution, SourceWorkResolverPort,
+    MethodDefinitionSnapshotInput, PortError, ProcessTimeboxResolution, ProcessTimeboxResolverPort,
+    QueryActorMemberRef, SourceWorkResolution, SourceWorkResolverPort, TraceHandoffPort,
 };
 use work_contracts::{
-    CapabilityRefSet, EvidenceVerifiedState, ExternalEvidenceRef, ExternalReferenceRef,
-    ExternalSourceSummary, GlobalMemberRef, ProcessTimeboxRef, ProcessTimeboxSummary, ProjectRef,
-    ReferenceResolutionStatus, SafeSummaryText, SourceDigest, SourceWorkRef,
-    MethodDefinitionKind, MethodDefinitionRef,
+    ArchiveHandoffRef, CapabilityRefSet, EvidenceVerifiedState, ExternalEvidenceRef,
+    ExternalReferenceRef, ExternalSourceSummary, GlobalMemberRef, MethodDefinitionKind,
+    MethodDefinitionRef, ProcessTimeboxRef, ProcessTimeboxSummary, ProjectRef,
+    ReferenceResolutionStatus, SafeSummaryText, SourceDigest, SourceWorkRef, TraceHandoffIntent,
+    TraceHandoffRef,
 };
-use work_domain::ReferenceResolutionState;
+use work_domain::{ArchiveHandoffIntent, ReferenceResolutionState};
 
 /// Deterministic fake query actor-member resolver keyed by `ActorRef.actor_id`.
 #[derive(Clone, Default)]
@@ -408,6 +410,110 @@ impl ProcessTimeboxResolverPort for FakeProcessTimeboxResolverPort {
             ProcessTimeboxResolverOutcome::Unresolved => Err(PortError::NotFound),
             ProcessTimeboxResolverOutcome::Unavailable => Err(PortError::Unavailable),
             ProcessTimeboxResolverOutcome::Rejected => Err(PortError::Rejected),
+        }
+    }
+}
+
+/// In-memory fake trace handoff adapter.
+#[derive(Clone, Default)]
+pub struct FakeTraceHandoffPort {
+    inner: Arc<Mutex<FakeTraceHandoffInner>>,
+}
+
+#[derive(Default)]
+struct FakeTraceHandoffInner {
+    intents: Vec<TraceHandoffIntent>,
+    queued_results: VecDeque<Result<TraceHandoffRef, PortError>>,
+}
+
+impl FakeTraceHandoffPort {
+    /// Creates an empty fake trace handoff adapter.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Queues one handoff outcome for the next prepare call.
+    pub fn push_result(&self, result: Result<TraceHandoffRef, PortError>) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.queued_results.push_back(result);
+        }
+    }
+
+    /// Returns captured handoff intents in call order.
+    pub fn intents(&self) -> Vec<TraceHandoffIntent> {
+        self.inner
+            .lock()
+            .map(|inner| inner.intents.clone())
+            .unwrap_or_default()
+    }
+}
+
+#[async_trait]
+impl TraceHandoffPort for FakeTraceHandoffPort {
+    async fn prepare_trace_handoff(
+        &self,
+        intent: TraceHandoffIntent,
+    ) -> Result<TraceHandoffRef, PortError> {
+        let mut inner = self.inner.lock().map_err(|_| PortError::Unavailable)?;
+        inner.intents.push(intent);
+        match inner.queued_results.pop_front() {
+            Some(result) => result,
+            None => Ok(TraceHandoffRef(format!(
+                "trace-handoff-{}",
+                inner.intents.len()
+            ))),
+        }
+    }
+}
+
+/// In-memory fake archive handoff adapter.
+#[derive(Clone, Default)]
+pub struct FakeArchiveHandoffPort {
+    inner: Arc<Mutex<FakeArchiveHandoffInner>>,
+}
+
+#[derive(Default)]
+struct FakeArchiveHandoffInner {
+    intents: Vec<ArchiveHandoffIntent>,
+    queued_results: VecDeque<Result<ArchiveHandoffRef, PortError>>,
+}
+
+impl FakeArchiveHandoffPort {
+    /// Creates an empty fake archive handoff adapter.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Queues one handoff outcome for the next prepare call.
+    pub fn push_result(&self, result: Result<ArchiveHandoffRef, PortError>) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.queued_results.push_back(result);
+        }
+    }
+
+    /// Returns captured archive intents in call order.
+    pub fn intents(&self) -> Vec<ArchiveHandoffIntent> {
+        self.inner
+            .lock()
+            .map(|inner| inner.intents.clone())
+            .unwrap_or_default()
+    }
+}
+
+#[async_trait]
+impl ArchiveHandoffPort for FakeArchiveHandoffPort {
+    async fn prepare_archive_handoff(
+        &self,
+        intent: ArchiveHandoffIntent,
+    ) -> Result<ArchiveHandoffRef, PortError> {
+        let mut inner = self.inner.lock().map_err(|_| PortError::Unavailable)?;
+        inner.intents.push(intent);
+        match inner.queued_results.pop_front() {
+            Some(result) => result,
+            None => Ok(ArchiveHandoffRef(format!(
+                "archive-handoff-{}",
+                inner.intents.len()
+            ))),
         }
     }
 }

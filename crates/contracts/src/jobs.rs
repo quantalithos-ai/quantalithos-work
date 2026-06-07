@@ -9,8 +9,8 @@ use core_contracts::{
 
 use crate::handoff::WorkCommandReceipt;
 use crate::refs::{
-    ArchiveHandoffScope, ArchiveHandoffTargetRef, ExternalReferenceRef, ExternalReferenceScope,
-    JobRunId, ProjectRef, TraceHandoffTargetRef, WorkReconciliationScopeRef, WorkTraceSubjectRef,
+    ArchiveHandoffScope, ArchiveHandoffTargetRef, ExternalReferenceScope, JobRunId, ProjectRef,
+    TraceHandoffTargetRef, WorkJobFailureRef, WorkReconciliationScopeRef, WorkTraceSubjectRef,
 };
 
 /// Selects which Work projections a rebuild job should replace.
@@ -52,7 +52,7 @@ pub struct WorkJobReport {
     /// Number of records changed.
     pub changed_count: u64,
     /// Failed item refs that require retry or inspection.
-    pub failed_refs: Vec<ExternalReferenceRef>,
+    pub failed_refs: Vec<WorkJobFailureRef>,
 }
 
 impl WorkJobReport {

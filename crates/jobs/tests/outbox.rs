@@ -5,9 +5,13 @@ use work_application::{
 use work_contracts::fixtures;
 use work_domain::{Backlog, Project, ProjectMember, WorkItem, WorkOutboxRecord};
 use work_infra::{
-    clock_id::DeterministicWorkIdGenerator, command_result_store::InMemoryCommandResultRepository,
-    idempotency_store::InMemoryIdempotencyRepository, outbox_store::InMemoryWorkOutboxRepository,
-    publishers::FakeWorkOutboxPublisher, repositories::InMemoryWorkStores,
+    clock_id::DeterministicWorkIdGenerator,
+    command_result_store::InMemoryCommandResultRepository,
+    idempotency_store::InMemoryIdempotencyRepository,
+    outbox_store::InMemoryWorkOutboxRepository,
+    publishers::FakeWorkOutboxPublisher,
+    repositories::InMemoryWorkStores,
+    source_resolvers::{FakeArchiveHandoffPort, FakeTraceHandoffPort},
 };
 use work_jobs::WorkOperationsJobRunner;
 
@@ -148,13 +152,14 @@ async fn runner_delegates_publish_work_outbox() {
             reference_repo: stores.clone(),
             projection_repo: stores.clone(),
             member_resolver: work_infra::source_resolvers::FakeMemberReferencePort::new(),
-            method_resolver:
-                work_infra::source_resolvers::FakeMethodDefinitionResolverPort::new(),
+            method_resolver: work_infra::source_resolvers::FakeMethodDefinitionResolverPort::new(),
             source_resolver: work_infra::source_resolvers::FakeSourceWorkResolverPort::new(),
             evidence_resolver: work_infra::source_resolvers::FakeEvidenceResolverPort::new(),
             process_timebox_resolver:
                 work_infra::source_resolvers::FakeProcessTimeboxResolverPort::new(),
-            clock: work_infra::clock_id::FixedClock::new(fixtures::request_metadata(None).requested_at),
+            clock: work_infra::clock_id::FixedClock::new(
+                fixtures::request_metadata(None).requested_at,
+            ),
             unit_of_work: stores.clone(),
             idempotency: InMemoryIdempotencyRepository::new(),
             job_results: InMemoryCommandResultRepository::new(),
@@ -164,7 +169,32 @@ async fn runner_delegates_publish_work_outbox() {
             truth_snapshot_repo: stores.clone(),
             projection_repo: stores.clone(),
             outbox_repo: InMemoryWorkOutboxRepository::new(),
-            reference_repo: stores,
+            reference_repo: stores.clone(),
+            unit_of_work: InMemoryWorkStores::new(),
+            idempotency: InMemoryIdempotencyRepository::new(),
+            job_results: InMemoryCommandResultRepository::new(),
+            ids: DeterministicWorkIdGenerator::new(),
+        },
+        work_application::WorkTraceHandoffService {
+            audit_repo: stores.clone(),
+            outbox_repo: InMemoryWorkOutboxRepository::new(),
+            trace_handoff: FakeTraceHandoffPort::new(),
+            clock: work_infra::clock_id::FixedClock::new(
+                fixtures::request_metadata(None).requested_at,
+            ),
+            unit_of_work: stores.clone(),
+            idempotency: InMemoryIdempotencyRepository::new(),
+            job_results: InMemoryCommandResultRepository::new(),
+            ids: DeterministicWorkIdGenerator::new(),
+        },
+        work_application::WorkArchiveHandoffService {
+            archive_summary_repo: stores.clone(),
+            audit_repo: stores.clone(),
+            outbox_repo: InMemoryWorkOutboxRepository::new(),
+            archive_handoff: FakeArchiveHandoffPort::new(),
+            clock: work_infra::clock_id::FixedClock::new(
+                fixtures::request_metadata(None).requested_at,
+            ),
             unit_of_work: InMemoryWorkStores::new(),
             idempotency: InMemoryIdempotencyRepository::new(),
             job_results: InMemoryCommandResultRepository::new(),

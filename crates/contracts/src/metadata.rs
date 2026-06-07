@@ -643,6 +643,7 @@ pub mod fixtures {
     pub fn archive_handoff_scope() -> ArchiveHandoffScope {
         ArchiveHandoffScope {
             scope_kind: ArchiveHandoffScopeKind::Subjects,
+            project_ref: None,
             subject_refs: vec![project_trace_subject()],
             source_cursor: Some(truth_cursor()),
         }
@@ -761,7 +762,9 @@ pub mod fixtures {
             )),
             scanned_count: 9,
             changed_count: 4,
-            failed_refs: vec![source_external_reference_ref()],
+            failed_refs: vec![crate::refs::WorkJobFailureRef::ExternalReference(
+                source_external_reference_ref(),
+            )],
         }
     }
 

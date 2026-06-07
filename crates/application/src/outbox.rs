@@ -13,12 +13,12 @@ use crate::{
 };
 use work_contracts::events::EventSchemaVersion;
 use work_contracts::{
-    ApplicationResultRef, DerivedWorkViewChangedEvent, ExternalReferenceRef, OutboxFailureReason,
+    ApplicationResultRef, DerivedWorkViewChangedEvent, OutboxFailureReason,
     OutboxFailureReasonKind, OutboxPublicationRef, ProjectChangedEvent, ProjectMemberChangedEvent,
     PromoteResultRecordedEvent, PublishWorkOutboxJobInput, SafeSummaryText,
-    WorkBlockerChangedEvent, WorkDependencyChangedEvent, WorkItemChangedEvent, WorkJobReport,
-    WorkOutboundEventEnvelope, WorkOutboundPublication, WorkOutboxEventKind, WorkOutboxId,
-    WorkOutboxSourceRef, WorkTraceAvailableEvent,
+    WorkBlockerChangedEvent, WorkDependencyChangedEvent, WorkItemChangedEvent, WorkJobFailureRef,
+    WorkJobReport, WorkOutboundEventEnvelope, WorkOutboundPublication, WorkOutboxEventKind,
+    WorkOutboxId, WorkOutboxSourceRef, WorkTraceAvailableEvent,
 };
 use work_domain::WorkOutboxRecord;
 
@@ -645,15 +645,8 @@ where
         .map_err(|_| ApplicationError::InvalidRequest)
     }
 
-    fn outbox_failed_ref(outbox_id: WorkOutboxId) -> ExternalReferenceRef {
-        ExternalReferenceRef::SourceWork(work_contracts::SourceWorkRef {
-            source_kind: work_contracts::SourceWorkKind::Runtime,
-            external_ref: work_contracts::ExternalSourceRef {
-                source_system: work_contracts::ExternalSourceSystem::Workspace,
-                external_id: format!("work-outbox/{}", outbox_id.0),
-            },
-            source_digest: None,
-        })
+    fn outbox_failed_ref(outbox_id: WorkOutboxId) -> WorkJobFailureRef {
+        WorkJobFailureRef::WorkOutbox(outbox_id)
     }
 
     fn failure_reason_from_port(error: PortError) -> OutboxFailureReason {
