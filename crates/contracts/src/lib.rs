@@ -4,8 +4,10 @@ pub mod commands;
 pub mod errors;
 pub mod handoff;
 pub mod metadata;
+pub mod queries;
 pub mod refs;
 pub mod states;
+pub mod views;
 
 pub use commands::{
     AssignProjectMemberRequest, BacklogCommandResult, BlockerCommandResult,
@@ -22,6 +24,14 @@ pub use commands::{
 pub use errors::WorkProtocolError;
 pub use handoff::{ApplicationResultRef, WorkCommandReceipt, WorkTraceContextRef};
 pub use metadata::fixtures;
+pub use queries::{
+    BacklogQueryFilter, GetBacklogRequest, GetIterationSummaryRequest, GetProjectBoardViewRequest,
+    GetProjectWorkFactsRequest, GetWorkItemRequest, GetWorkTraceRequest, ListMemberWorkRequest,
+    ProjectBoardView, ProjectMemberSummaryView, ProjectWorkFactsView, ProjectionViewMarker,
+    PublicPageInfo, QuerySurface, SearchWorkRequest, WorkItemView, WorkQueryEnvelope,
+    WorkQueryResponse, WorkRelationStateView, WorkRelationSummaryView, WorkSearchCriteria,
+    WorkSearchResult, WorkTraceRecordView, WorkTraceView,
+};
 pub use refs::{
     ArchiveHandoffRef, BacklogId, BacklogMaintenanceReason, BacklogMaintenanceReasonKind,
     BacklogRef, BlockerCauseRef, BlockerCloseReason, BlockerCloseReasonKind,
@@ -46,20 +56,22 @@ pub use refs::{
     TraceHandoffRef, TraceHandoffTargetKind, TraceHandoffTargetRef, WorkAuditSubjectRef,
     WorkAuditTrailId, WorkBlockerId, WorkBlockerRef, WorkDependencyId, WorkDependencyRef,
     WorkItemId, WorkLifecycleReason, WorkLifecycleReasonKind, WorkLifecycleTarget,
-    WorkOutboxEventKind, WorkOutboxId, WorkPolicyScope, WorkTitle, WorkTraceId,
-    WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange, WorkTruthCursor,
-    WorkTruthSnapshot,
+    WorkOutboxEventKind, WorkOutboxId, WorkPolicyScope, WorkSearchCriteriaDigest, WorkSearchText,
+    WorkTitle, WorkTraceId, WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange,
+    WorkTruthCursor, WorkTruthSnapshot,
 };
 pub use states::{
     BacklogAvailabilityTarget, BacklogState, BlockerState, CommitmentState, DependencyState,
-    IterationState, OutboxPublicationState, ProjectLifecycleState,
-    ProjectMemberResponsibilityState, PromoteResultState, WorkItemState,
+    DerivedFreshnessState, IterationState, OutboxPublicationState, ProjectLifecycleState,
+    ProjectMemberResponsibilityState, PromoteResultState, ReferenceResolutionStatus, WorkItemState,
 };
 
 #[cfg(test)]
 mod tests {
     use serde::Serialize;
     use serde::de::DeserializeOwned;
+
+    use core_contracts::metadata::{PageRequest, QueryConsistency, QueryMetadata};
 
     use super::commands::{
         AssignProjectMemberRequest, BacklogCommandResult, BlockerCommandResult,
@@ -76,17 +88,26 @@ mod tests {
     };
     use super::handoff::{WorkCommandReceipt, WorkTraceContextRef};
     use super::metadata::fixtures;
+    use super::queries::{
+        BacklogQueryFilter, BacklogView, FormalWorkSummaryView, GetBacklogRequest,
+        GetIterationSummaryRequest, GetProjectBoardViewRequest, GetProjectWorkFactsRequest,
+        GetWorkItemRequest, GetWorkTraceRequest, IterationSummaryView, ListMemberWorkRequest,
+        MemberWorkView, ProjectBoardView, ProjectMemberSummaryView, ProjectWorkFactsView,
+        ProjectionViewMarker, PublicPageInfo, QuerySurface, SearchWorkRequest, WorkItemView,
+        WorkQueryEnvelope, WorkQueryResponse, WorkRelationStateView, WorkRelationSummaryView,
+        WorkSearchResult, WorkTraceRecordView, WorkTraceView,
+    };
     use super::refs::{
         BacklogMaintenanceReason, BacklogMaintenanceReasonKind, DependencyOrBlockerRef,
-        DependencyTarget, IterationLifecycleTarget, ProjectLifecycleReason,
+        DependencyTarget, DerivedWorkViewRef, IterationLifecycleTarget, ProjectLifecycleReason,
         ProjectLifecycleReasonKind, ProjectLifecycleTarget, ProjectMemberReason,
         ProjectMemberReasonKind, PromoteReviewDecision, ResponsibilityTarget, TraceHandoffIntent,
         TraceHandoffTargetKind, TraceHandoffTargetRef, WorkLifecycleTarget, WorkTruthChange,
     };
     use super::states::{
         BacklogAvailabilityTarget, BacklogState, BlockerState, CommitmentState, DependencyState,
-        IterationState, ProjectLifecycleState, ProjectMemberResponsibilityState,
-        PromoteResultState, WorkItemState,
+        DerivedFreshnessState, IterationState, ProjectLifecycleState,
+        ProjectMemberResponsibilityState, PromoteResultState, WorkItemState,
     };
 
     fn roundtrip<T>(value: &T)
@@ -349,5 +370,166 @@ mod tests {
         roundtrip(&WorkTraceContextRef::from_metadata(
             &fixtures::request_metadata(None),
         ));
+    }
+
+    #[test]
+    fn query_envelope_and_view_roundtrip() {
+        let metadata = QueryMetadata {
+            request: fixtures::request_metadata(None),
+            page: Some(PageRequest {
+                limit: 25,
+                page_token: Some(fixtures::page_token("page-2")),
+            }),
+            consistency: QueryConsistency::Eventual,
+        };
+        roundtrip(&WorkQueryEnvelope {
+            actor: fixtures::query_actor_context(),
+            metadata: metadata.clone(),
+            query: SearchWorkRequest {
+                project_ref: fixtures::project_ref(),
+                criteria: fixtures::work_search_criteria(),
+            },
+        });
+
+        let marker = ProjectionViewMarker {
+            view_ref: DerivedWorkViewRef::search(
+                fixtures::project_ref(),
+                fixtures::work_search_criteria_digest(),
+            ),
+            source_cursor: fixtures::truth_cursor(),
+            freshness_state: DerivedFreshnessState::Fresh,
+        };
+        let page = PublicPageInfo {
+            next_page_token: Some(fixtures::page_token("page-3")),
+            has_more: true,
+        };
+        let formal_work = FormalWorkSummaryView {
+            work_ref: fixtures::formal_work_ref(),
+            work_state: WorkItemState::InProgress,
+            assignee_ref: Some(fixtures::project_member_ref()),
+            completion_ref: None,
+        };
+        let relation = WorkRelationSummaryView {
+            relation_ref: DependencyOrBlockerRef::Dependency(fixtures::work_dependency_ref()),
+            affected_work_refs: vec![
+                fixtures::formal_work_ref(),
+                fixtures::child_formal_work_ref(),
+            ],
+            relation_state: WorkRelationStateView::Dependency(DependencyState::Active),
+        };
+
+        roundtrip(&GetProjectWorkFactsRequest {
+            project_ref: fixtures::project_ref(),
+        });
+        roundtrip(&GetBacklogRequest {
+            project_ref: fixtures::project_ref(),
+            filter: Some(BacklogQueryFilter {
+                work_state: Some(WorkItemState::Formalized),
+                assignee_ref: Some(fixtures::project_member_ref()),
+            }),
+        });
+        roundtrip(&GetWorkItemRequest {
+            work_ref: fixtures::formal_work_ref(),
+        });
+        roundtrip(&ListMemberWorkRequest {
+            project_member_ref: fixtures::project_member_ref(),
+            work_state: Some(WorkItemState::Committed),
+        });
+        roundtrip(&GetIterationSummaryRequest {
+            iteration_ref: fixtures::iteration_ref(),
+        });
+        roundtrip(&SearchWorkRequest {
+            project_ref: fixtures::project_ref(),
+            criteria: fixtures::work_search_criteria(),
+        });
+        roundtrip(&GetWorkTraceRequest {
+            subject_ref: fixtures::project_trace_subject(),
+        });
+        roundtrip(&GetProjectBoardViewRequest {
+            project_ref: fixtures::project_ref(),
+        });
+
+        roundtrip(&ProjectWorkFactsView {
+            project_ref: fixtures::project_ref(),
+            lifecycle_state: ProjectLifecycleState::Active,
+            backlog_ref: Some(fixtures::backlog_ref()),
+            members: vec![ProjectMemberSummaryView {
+                project_member_ref: fixtures::project_member_ref(),
+                member_ref: fixtures::global_member_ref(),
+                responsibility_state: ProjectMemberResponsibilityState::Active,
+            }],
+            formal_work: vec![formal_work.clone()],
+            relations: vec![relation.clone()],
+        });
+        roundtrip(&BacklogView {
+            backlog_ref: fixtures::backlog_ref(),
+            project_ref: fixtures::project_ref(),
+            backlog_state: BacklogState::Open,
+            items: vec![formal_work.clone()],
+            page: page.clone(),
+        });
+        roundtrip(&WorkItemView {
+            work_ref: fixtures::child_formal_work_ref(),
+            parent_ref: Some(fixtures::formal_work_ref()),
+            work_state: WorkItemState::Completed,
+            assignee_ref: Some(fixtures::project_member_ref()),
+            source_ref: Some(fixtures::source_work_ref()),
+            completion_ref: Some(fixtures::completion_evidence_ref()),
+            relations: vec![relation.clone()],
+        });
+        roundtrip(&MemberWorkView {
+            member_ref: fixtures::project_member_ref(),
+            assigned_work: vec![formal_work.clone()],
+            marker: ProjectionViewMarker {
+                view_ref: DerivedWorkViewRef::member_work(fixtures::project_member_ref()),
+                source_cursor: fixtures::truth_cursor(),
+                freshness_state: DerivedFreshnessState::Stale,
+            },
+            page: page.clone(),
+        });
+        roundtrip(&IterationSummaryView {
+            iteration_ref: fixtures::iteration_ref(),
+            iteration_state: IterationState::Committed,
+            commitment_state: Some(CommitmentState::Committed),
+            committed_work: vec![formal_work.clone()],
+            marker: ProjectionViewMarker {
+                view_ref: DerivedWorkViewRef::iteration_summary(fixtures::iteration_ref()),
+                source_cursor: fixtures::truth_cursor(),
+                freshness_state: DerivedFreshnessState::Fresh,
+            },
+        });
+        roundtrip(&WorkSearchResult {
+            project_ref: fixtures::project_ref(),
+            criteria: fixtures::work_search_criteria(),
+            items: vec![formal_work.clone()],
+            marker: marker.clone(),
+            page: page.clone(),
+        });
+        roundtrip(&WorkTraceView {
+            subject_ref: fixtures::project_trace_subject(),
+            records: vec![WorkTraceRecordView {
+                trace_id: fixtures::trace_id(),
+                subject_ref: fixtures::project_trace_subject(),
+                trace_context_ref: fixtures::trace_context_ref(),
+            }],
+            page: page.clone(),
+        });
+        roundtrip(&ProjectBoardView {
+            project_ref: fixtures::project_ref(),
+            work_cards: vec![formal_work],
+            marker,
+        });
+        roundtrip(&WorkQueryResponse {
+            surface: QuerySurface::Visible,
+            data: Some(ProjectBoardView {
+                project_ref: fixtures::project_ref(),
+                work_cards: vec![],
+                marker: ProjectionViewMarker {
+                    view_ref: DerivedWorkViewRef::project_board(fixtures::project_ref()),
+                    source_cursor: fixtures::truth_cursor(),
+                    freshness_state: DerivedFreshnessState::Rebuilding,
+                },
+            }),
+        });
     }
 }

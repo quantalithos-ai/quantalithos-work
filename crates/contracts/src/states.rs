@@ -134,6 +134,34 @@ pub enum CommitmentState {
     Closed,
 }
 
+/// Freshness state for a derived Work view.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DerivedFreshnessState {
+    /// The derived view covers the current source cursor.
+    Fresh,
+    /// The derived view is behind committed Work truth.
+    Stale,
+    /// The derived view is currently rebuilding.
+    Rebuilding,
+    /// The last rebuild failed and the view is degraded.
+    Failed,
+}
+
+/// Resolution state for an external reference snapshot.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReferenceResolutionStatus {
+    /// The reference has not been resolved.
+    Unresolved,
+    /// The reference is resolved.
+    Resolved,
+    /// The reference snapshot is stale.
+    Stale,
+    /// The reference failed to resolve.
+    Failed,
+}
+
 /// Target availability state requested for a backlog.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

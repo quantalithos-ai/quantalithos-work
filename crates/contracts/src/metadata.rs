@@ -3,8 +3,8 @@
 use core_contracts::{
     actor::{ActorContext, ActorKind, ActorRef, RequestOrigin},
     metadata::{
-        CommandMetadata, IdempotencyKey, OperationName, RequestId, RequestMetadata, Timestamp,
-        TraceId,
+        CommandMetadata, IdempotencyKey, OperationName, PageToken, QueryConsistency, QueryMetadata,
+        RequestId, RequestMetadata, Timestamp, TraceId,
     },
 };
 
@@ -18,15 +18,16 @@ use crate::{
         EvidenceKind, EvidenceVerifiedState, ExternalEvidenceRef, ExternalSourceRef,
         ExternalSourceSystem, FormalWorkIntent, FormalWorkRef, FormalWorkRefSet, GlobalMemberRef,
         IterationChangeReason, IterationChangeReasonKind, IterationCloseReason,
-        IterationCloseReasonKind, IterationCommitmentChangeSet, IterationCommitmentId,
-        IterationId, IterationRef, MethodDefinitionRef, ProcessTimeboxRef, ProjectId,
-        ProjectMemberId, ProjectMemberRef, ProjectOwnerKind, ProjectOwnerRef, ProjectRef,
-        ProjectResponsibilityKind, PromoteReason, PromoteReasonKind, PromoteRejectReason,
-        PromoteRejectReasonKind, PromoteResultId, PromoteResultRef, ResultId, SafeSummaryText,
-        SourceDigest, SourceEventId, SourceWorkKind, SourceWorkRef, TraceHandoffRef,
-        WorkAuditSubjectRef, WorkAuditTrailId, WorkBlockerId, WorkBlockerRef, WorkDependencyId,
-        WorkDependencyRef, WorkItemId, WorkLifecycleReason, WorkLifecycleReasonKind, WorkOutboxId,
-        WorkTitle, WorkTraceId, WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange,
+        IterationCloseReasonKind, IterationCommitmentChangeSet, IterationCommitmentId, IterationId,
+        IterationRef, MethodDefinitionRef, ProcessTimeboxRef, ProjectId, ProjectMemberId,
+        ProjectMemberRef, ProjectOwnerKind, ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind,
+        PromoteReason, PromoteReasonKind, PromoteRejectReason, PromoteRejectReasonKind,
+        PromoteResultId, PromoteResultRef, ResultId, SafeSummaryText, SourceDigest, SourceEventId,
+        SourceWorkKind, SourceWorkRef, TraceHandoffRef, WorkAuditSubjectRef, WorkAuditTrailId,
+        WorkBlockerId, WorkBlockerRef, WorkDependencyId, WorkDependencyRef, WorkItemId,
+        WorkLifecycleReason, WorkLifecycleReasonKind, WorkOutboxId, WorkSearchCriteriaDigest,
+        WorkSearchText, WorkTitle, WorkTraceId, WorkTraceRecordRefSet, WorkTraceSubjectRef,
+        WorkTruthChange, WorkTruthCursor,
     },
 };
 
@@ -39,6 +40,14 @@ pub mod fixtures {
         ActorContext::new(
             ActorRef::new("work-actor-1", ActorKind::Human),
             RequestOrigin::Command,
+        )
+    }
+
+    /// Returns a deterministic query actor context for tests.
+    pub fn query_actor_context() -> ActorContext {
+        ActorContext::new(
+            ActorRef::new("work-query-actor-1", ActorKind::Human),
+            RequestOrigin::Query,
         )
     }
 
@@ -58,6 +67,15 @@ pub mod fixtures {
             request: request_metadata(Some(idempotency_key)),
             reason: None,
             external_ref: None,
+        }
+    }
+
+    /// Returns deterministic query metadata.
+    pub fn query_metadata() -> QueryMetadata {
+        QueryMetadata {
+            request: request_metadata(None),
+            page: None,
+            consistency: QueryConsistency::Eventual,
         }
     }
 
@@ -224,6 +242,18 @@ pub mod fixtures {
         WorkTitle(value.to_owned())
     }
 
+    /// Returns a deterministic work search text.
+    pub fn work_search_text(value: &str) -> WorkSearchText {
+        WorkSearchText(value.to_owned())
+    }
+
+    /// Returns a deterministic work search criteria digest.
+    pub fn work_search_criteria_digest() -> WorkSearchCriteriaDigest {
+        WorkSearchCriteriaDigest(
+            "work_state=in_progress|assignee_ref=project-member-1|source_kind=conversation|text_query=formal work".to_owned(),
+        )
+    }
+
     /// Returns a deterministic method definition ref.
     pub fn method_definition_ref() -> MethodDefinitionRef {
         MethodDefinitionRef("method-definition-1".to_owned())
@@ -344,6 +374,11 @@ pub mod fixtures {
         WorkTraceId("trace-record-1".to_owned())
     }
 
+    /// Returns a deterministic truth cursor.
+    pub fn truth_cursor() -> WorkTruthCursor {
+        WorkTruthCursor("cursor-1".to_owned())
+    }
+
     /// Returns a deterministic audit trail id.
     pub fn audit_trail_id() -> WorkAuditTrailId {
         WorkAuditTrailId("audit-1".to_owned())
@@ -357,6 +392,11 @@ pub mod fixtures {
     /// Returns a deterministic handoff ref.
     pub fn trace_handoff_ref() -> TraceHandoffRef {
         TraceHandoffRef("handoff-1".to_owned())
+    }
+
+    /// Returns a deterministic page token.
+    pub fn page_token(value: &str) -> PageToken {
+        PageToken::new(value)
     }
 
     /// Returns a deterministic application result ref.
@@ -509,6 +549,16 @@ pub mod fixtures {
         IterationCommitmentChangeSet {
             add_work_refs: vec![downstream_formal_work_ref()],
             remove_work_refs: vec![formal_work_ref()],
+        }
+    }
+
+    /// Returns deterministic search criteria.
+    pub fn work_search_criteria() -> crate::queries::WorkSearchCriteria {
+        crate::queries::WorkSearchCriteria {
+            work_state: Some(crate::states::WorkItemState::InProgress),
+            assignee_ref: Some(project_member_ref()),
+            source_kind: Some(SourceWorkKind::Conversation),
+            text_query: Some(work_search_text("formal work")),
         }
     }
 

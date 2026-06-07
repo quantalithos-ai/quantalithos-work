@@ -65,6 +65,14 @@ string_newtype!(
     "Human-readable title for formal Work public views."
 );
 string_newtype!(
+    WorkSearchText,
+    "Free-text query for Work search after protocol validation."
+);
+string_newtype!(
+    WorkSearchCriteriaDigest,
+    "Stable digest over normalized WorkSearchCriteria."
+);
+string_newtype!(
     SourceDigest,
     "Digest supplied by an external source summary."
 );
@@ -90,7 +98,7 @@ pub enum DerivedWorkViewKind {
     /// Iteration summary projection.
     IterationSummary,
     /// Work search projection.
-    WorkSearch,
+    Search,
 }
 
 /// References a Work-owned project subject across APIs and events.
@@ -167,6 +175,8 @@ pub enum DerivedWorkViewScopeRef {
     ProjectMember(ProjectMemberRef),
     /// Iteration-scoped view.
     Iteration(IterationRef),
+    /// Search-scoped view derived from a full criteria digest.
+    Search(ProjectRef, WorkSearchCriteriaDigest),
 }
 
 /// Stable reference to one derived Work view freshness marker.
@@ -200,6 +210,14 @@ impl DerivedWorkViewRef {
         Self {
             view_kind: DerivedWorkViewKind::IterationSummary,
             scope_ref: DerivedWorkViewScopeRef::Iteration(iteration_ref),
+        }
+    }
+
+    /// Builds the work search derived view ref for one project and criteria digest.
+    pub fn search(project_ref: ProjectRef, criteria_digest: WorkSearchCriteriaDigest) -> Self {
+        Self {
+            view_kind: DerivedWorkViewKind::Search,
+            scope_ref: DerivedWorkViewScopeRef::Search(project_ref, criteria_digest),
         }
     }
 }
