@@ -9,9 +9,9 @@ use core_contracts::{
 
 use crate::handoff::WorkTraceContextRef;
 use crate::refs::{
-    BacklogRef, DependencyOrBlockerRef, DerivedWorkViewRef, ExternalEvidenceRef, FormalWorkRef,
-    GlobalMemberRef, IterationRef, ProjectMemberRef, ProjectRef, SourceWorkKind, SourceWorkRef,
-    WorkSearchText, WorkTraceId, WorkTraceSubjectRef,
+    BacklogRef, DependencyOrBlockerRef, DerivedWorkViewRef, ExternalEvidenceRef,
+    ExternalReferenceRef, FormalWorkRef, GlobalMemberRef, IterationRef, ProjectMemberRef,
+    ProjectRef, SourceWorkKind, SourceWorkRef, WorkSearchText, WorkTraceId, WorkTraceSubjectRef,
 };
 use crate::states::{
     BacklogState, BlockerState, CommitmentState, DependencyState, DerivedFreshnessState,
@@ -348,4 +348,19 @@ pub struct ProjectBoardView {
     pub work_cards: Vec<FormalWorkSummaryView>,
     /// Projection marker.
     pub marker: ProjectionViewMarker,
+}
+
+/// Report returned by Work reconciliation jobs.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ReconciliationReport {
+    /// Reconciliation scope.
+    pub scope_ref: crate::refs::WorkReconciliationScopeRef,
+    /// Truth cursor inspected by the job.
+    pub truth_cursor: crate::refs::WorkTruthCursor,
+    /// Derived views that are stale, failed, or missing.
+    pub projection_gaps: Vec<DerivedWorkViewRef>,
+    /// Outbox records requiring retry or inspection.
+    pub outbox_gaps: Vec<crate::refs::WorkOutboxId>,
+    /// External references requiring refresh.
+    pub reference_gaps: Vec<ExternalReferenceRef>,
 }

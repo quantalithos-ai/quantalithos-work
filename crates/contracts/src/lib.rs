@@ -2,7 +2,9 @@
 
 pub mod commands;
 pub mod errors;
+pub mod events;
 pub mod handoff;
+pub mod jobs;
 pub mod metadata;
 pub mod queries;
 pub mod refs;
@@ -22,7 +24,21 @@ pub use commands::{
     UpdateWorkItemLifecycleRequest, WorkCommandEnvelope, WorkItemCommandResult,
 };
 pub use errors::WorkProtocolError;
+pub use events::{
+    ArtifactEvidenceChangedPayload, BacklogChangedEvent, ConversationWorkContextChangedPayload,
+    DerivedWorkViewChangedEvent, EventSchemaVersion, GovernanceDecisionChangedPayload,
+    IdentityMemberChangedPayload, IterationChangedEvent, MethodDefinitionChangedPayload,
+    ProcessTimingChangedPayload, ProjectChangedEvent, ProjectMemberChangedEvent,
+    PromoteResultRecordedEvent, RuntimePromoteRequestedPayload, WorkBlockerChangedEvent,
+    WorkDependencyChangedEvent, WorkInboundEventEnvelope, WorkItemChangedEvent,
+    WorkOutboundEventEnvelope, WorkTraceAvailableEvent,
+};
 pub use handoff::{ApplicationResultRef, WorkCommandReceipt, WorkTraceContextRef};
+pub use jobs::{
+    PrepareArchiveHandoffJobInput, PrepareWorkTraceHandoffJobInput, PublishWorkOutboxJobInput,
+    RebuildWorkProjectionsJobInput, RefreshExternalReferenceSnapshotsJobInput,
+    RunWorkReconciliationJobInput, WorkJobMetadata, WorkJobReport, WorkProjectionSet,
+};
 pub use metadata::fixtures;
 pub use queries::{
     BacklogQueryFilter, GetBacklogRequest, GetIterationSummaryRequest, GetProjectBoardViewRequest,
@@ -33,18 +49,20 @@ pub use queries::{
     WorkSearchProjection, WorkSearchResult, WorkTraceRecordView, WorkTraceView,
 };
 pub use refs::{
-    ArchiveHandoffRef, BacklogId, BacklogMaintenanceReason, BacklogMaintenanceReasonKind,
+    ArchiveHandoffRef, ArchiveHandoffScope, ArchiveHandoffScopeKind, ArchiveHandoffTargetKind,
+    ArchiveHandoffTargetRef, BacklogId, BacklogMaintenanceReason, BacklogMaintenanceReasonKind,
     BacklogRef, BlockerCauseRef, BlockerCloseReason, BlockerCloseReasonKind,
     BlockerImpactExplanation, BlockerMitigationReason, BlockerMitigationReasonKind, CapabilityRef,
     CapabilityRefSet, ChildWorkItemId, CommitmentChangeReason, CommitmentChangeReasonKind,
     DependencyChangeId, DependencyChangeReason, DependencyChangeReasonKind, DependencyOrBlockerRef,
     DependencyReason, DependencyReasonKind, DependencyTarget, DerivedWorkViewKind,
     DerivedWorkViewRef, DerivedWorkViewScopeRef, EvidenceKind, EvidenceVerifiedState,
-    ExternalEvidenceRef, ExternalSourceRef, ExternalSourceSummary, ExternalSourceSystem,
-    FormalWorkCandidateSummary, FormalWorkIntent, FormalWorkRef, FormalWorkRefSet, GlobalMemberRef,
-    IterationChangeId, IterationChangeReason, IterationChangeReasonKind, IterationCloseReason,
+    ExternalEvidenceRef, ExternalReferenceRef, ExternalReferenceScope, ExternalReferenceScopeKind,
+    ExternalSourceRef, ExternalSourceSummary, ExternalSourceSystem, FormalWorkCandidateSummary,
+    FormalWorkIntent, FormalWorkRef, FormalWorkRefSet, GlobalMemberRef, IterationChangeId,
+    IterationChangeReason, IterationChangeReasonKind, IterationCloseReason,
     IterationCloseReasonKind, IterationCommitmentChangeSet, IterationCommitmentId, IterationId,
-    IterationLifecycleTarget, IterationRef, MethodDefinitionKind, MethodDefinitionRef,
+    IterationLifecycleTarget, IterationRef, JobRunId, MethodDefinitionKind, MethodDefinitionRef,
     OutboxFailureReason, OutboxFailureReasonKind, OutboxPublicationRef, OutboxRetryReason,
     ProcessTimeboxRef, ProcessTimeboxSummary, ProjectId, ProjectLifecycleReason,
     ProjectLifecycleReasonKind, ProjectLifecycleTarget, ProjectMemberId, ProjectMemberReason,
@@ -56,9 +74,10 @@ pub use refs::{
     TraceHandoffRef, TraceHandoffTargetKind, TraceHandoffTargetRef, WorkAuditSubjectRef,
     WorkAuditTrailId, WorkBlockerId, WorkBlockerRef, WorkDependencyId, WorkDependencyRef,
     WorkItemId, WorkLifecycleReason, WorkLifecycleReasonKind, WorkLifecycleTarget,
-    WorkOutboxEventKind, WorkOutboxId, WorkPolicyScope, WorkSearchCriteriaDigest, WorkSearchText,
-    WorkTitle, WorkTraceId, WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange,
-    WorkTruthCursor, WorkTruthSnapshot,
+    WorkOutboxEventKind, WorkOutboxId, WorkPolicyScope, WorkReconciliationScopeKind,
+    WorkReconciliationScopeRef, WorkSearchCriteriaDigest, WorkSearchText, WorkTitle, WorkTraceId,
+    WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange, WorkTruthCursor,
+    WorkTruthSnapshot,
 };
 pub use states::{
     BacklogAvailabilityTarget, BacklogState, BlockerState, CommitmentState, DependencyState,
@@ -86,7 +105,9 @@ mod tests {
         UpdateWorkDependencyStateRequest, UpdateWorkItemLifecycleRequest, WorkCommandEnvelope,
         WorkItemCommandResult,
     };
+    use super::events::{EventSchemaVersion, WorkInboundEventEnvelope, WorkOutboundEventEnvelope};
     use super::handoff::{WorkCommandReceipt, WorkTraceContextRef};
+    use super::jobs::{WorkJobMetadata, WorkProjectionSet};
     use super::metadata::fixtures;
     use super::queries::{
         BacklogQueryFilter, BacklogView, FormalWorkSummaryView, GetBacklogRequest,
@@ -98,11 +119,14 @@ mod tests {
         WorkSearchResult, WorkTraceRecordView, WorkTraceView,
     };
     use super::refs::{
-        BacklogMaintenanceReason, BacklogMaintenanceReasonKind, DependencyOrBlockerRef,
-        DependencyTarget, DerivedWorkViewRef, IterationLifecycleTarget, ProjectLifecycleReason,
-        ProjectLifecycleReasonKind, ProjectLifecycleTarget, ProjectMemberReason,
-        ProjectMemberReasonKind, PromoteReviewDecision, ResponsibilityTarget, TraceHandoffIntent,
-        TraceHandoffTargetKind, TraceHandoffTargetRef, WorkLifecycleTarget, WorkTruthChange,
+        ArchiveHandoffScope, ArchiveHandoffScopeKind, ArchiveHandoffTargetKind,
+        ArchiveHandoffTargetRef, BacklogMaintenanceReason, BacklogMaintenanceReasonKind,
+        DependencyOrBlockerRef, DependencyTarget, DerivedWorkViewRef, ExternalReferenceRef,
+        ExternalReferenceScope, ExternalReferenceScopeKind, IterationLifecycleTarget, JobRunId,
+        ProjectLifecycleReason, ProjectLifecycleReasonKind, ProjectLifecycleTarget,
+        ProjectMemberReason, ProjectMemberReasonKind, PromoteReviewDecision, ResponsibilityTarget,
+        TraceHandoffIntent, TraceHandoffTargetKind, TraceHandoffTargetRef, WorkLifecycleTarget,
+        WorkReconciliationScopeKind, WorkReconciliationScopeRef, WorkTruthChange,
     };
     use super::states::{
         BacklogAvailabilityTarget, BacklogState, BlockerState, CommitmentState, DependencyState,
@@ -370,6 +394,126 @@ mod tests {
         roundtrip(&WorkTraceContextRef::from_metadata(
             &fixtures::request_metadata(None),
         ));
+    }
+
+    #[test]
+    fn event_schema_and_job_contracts_roundtrip() {
+        roundtrip(&EventSchemaVersion::v1());
+        roundtrip(&fixtures::event_schema_version());
+
+        roundtrip(&ExternalReferenceRef::from_member(
+            fixtures::global_member_ref(),
+        ));
+        roundtrip(&ExternalReferenceRef::from_method_definition(
+            fixtures::method_definition_ref(),
+        ));
+        roundtrip(&ExternalReferenceRef::from_source_work(
+            fixtures::source_work_ref(),
+        ));
+        roundtrip(&ExternalReferenceRef::from_evidence(
+            fixtures::completion_evidence_ref(),
+        ));
+        roundtrip(&ExternalReferenceRef::from_process_timebox(
+            fixtures::process_timebox_ref(),
+        ));
+
+        roundtrip(&WorkInboundEventEnvelope {
+            source_event_id: fixtures::source_event_id(),
+            source_ref: fixtures::external_source_ref(),
+            event_version: fixtures::event_schema_version(),
+            trace_context_ref: fixtures::trace_context_ref(),
+            occurred_at: fixtures::request_metadata(None).requested_at,
+            payload: fixtures::identity_member_changed_payload(),
+        });
+        roundtrip(&fixtures::inbound_event_envelope(
+            fixtures::method_definition_changed_payload(),
+        ));
+        roundtrip(&fixtures::inbound_event_envelope(
+            fixtures::conversation_work_context_changed_payload(),
+        ));
+        roundtrip(&fixtures::inbound_event_envelope(
+            fixtures::process_timing_changed_payload(),
+        ));
+        roundtrip(&fixtures::inbound_event_envelope(
+            fixtures::governance_decision_changed_payload(),
+        ));
+        roundtrip(&fixtures::inbound_event_envelope(
+            fixtures::artifact_evidence_changed_payload(),
+        ));
+        roundtrip(&fixtures::inbound_event_envelope(
+            fixtures::runtime_promote_requested_payload(),
+        ));
+
+        roundtrip(&WorkOutboundEventEnvelope {
+            outbox_id: fixtures::outbox_id(),
+            event_version: fixtures::event_schema_version(),
+            trace_context_ref: fixtures::trace_context_ref(),
+            occurred_at: fixtures::request_metadata(None).requested_at,
+            payload: fixtures::project_changed_event(),
+        });
+        roundtrip(&fixtures::outbound_event_envelope(
+            fixtures::backlog_changed_event(),
+        ));
+        roundtrip(&fixtures::outbound_event_envelope(
+            fixtures::project_member_changed_event(),
+        ));
+        roundtrip(&fixtures::outbound_event_envelope(
+            fixtures::work_item_changed_event(),
+        ));
+        roundtrip(&fixtures::outbound_event_envelope(
+            fixtures::promote_result_recorded_event(),
+        ));
+        roundtrip(&fixtures::outbound_event_envelope(
+            fixtures::work_dependency_changed_event(),
+        ));
+        roundtrip(&fixtures::outbound_event_envelope(
+            fixtures::work_blocker_changed_event(),
+        ));
+        roundtrip(&fixtures::outbound_event_envelope(
+            fixtures::iteration_changed_event(),
+        ));
+        roundtrip(&fixtures::outbound_event_envelope(
+            fixtures::trace_available_event(),
+        ));
+        roundtrip(&fixtures::outbound_event_envelope(
+            fixtures::derived_work_view_changed_event(),
+        ));
+
+        roundtrip(&JobRunId("job-run-1".to_owned()));
+        roundtrip(&WorkProjectionSet::All);
+        roundtrip(&ExternalReferenceScope {
+            scope_kind: ExternalReferenceScopeKind::ExplicitRefs,
+            project_ref: Some(fixtures::project_ref()),
+            reference_refs: vec![fixtures::member_external_reference_ref()],
+        });
+        roundtrip(&WorkReconciliationScopeRef {
+            scope_kind: WorkReconciliationScopeKind::Project,
+            project_ref: Some(fixtures::project_ref()),
+            view_ref: None,
+            reference_ref: None,
+        });
+        roundtrip(&ArchiveHandoffScope {
+            scope_kind: ArchiveHandoffScopeKind::Subjects,
+            subject_refs: vec![fixtures::project_trace_subject()],
+            source_cursor: Some(fixtures::truth_cursor()),
+        });
+        roundtrip(&ArchiveHandoffTargetRef {
+            target_kind: ArchiveHandoffTargetKind::ArchiveStore,
+            external_ref: fixtures::external_source_ref(),
+        });
+        roundtrip(&WorkJobMetadata {
+            job_run_id: fixtures::job_run_id(),
+            actor: fixtures::actor_context(),
+            command_metadata: fixtures::command_metadata("job-idem"),
+        });
+        roundtrip(&fixtures::job_report());
+        roundtrip(&fixtures::publish_outbox_job_input());
+        roundtrip(&fixtures::rebuild_projections_job_input());
+        roundtrip(&fixtures::refresh_references_job_input());
+        roundtrip(&fixtures::reconciliation_job_input());
+        roundtrip(&fixtures::trace_handoff_job_input());
+        roundtrip(&fixtures::archive_handoff_job_input());
+        roundtrip(&fixtures::reconciliation_report());
     }
 
     #[test]

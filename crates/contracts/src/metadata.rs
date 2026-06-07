@@ -3,31 +3,42 @@
 use core_contracts::{
     actor::{ActorContext, ActorKind, ActorRef, RequestOrigin},
     metadata::{
-        CommandMetadata, IdempotencyKey, OperationName, PageToken, QueryConsistency, QueryMetadata,
-        RequestId, RequestMetadata, Timestamp, TraceId,
+        CommandMetadata, IdempotencyKey, OperationName, PageRequest, PageToken, QueryConsistency,
+        QueryMetadata, RequestId, RequestMetadata, Timestamp, TraceId,
     },
 };
 
 use crate::{
     commands::{ProjectResponsibilitySpec, ProjectSpec},
-    handoff::{ApplicationResultRef, WorkTraceContextRef},
+    events::EventSchemaVersion,
+    handoff::{ApplicationResultRef, WorkCommandReceipt, WorkTraceContextRef},
+    jobs::{
+        PrepareArchiveHandoffJobInput, PrepareWorkTraceHandoffJobInput, PublishWorkOutboxJobInput,
+        RebuildWorkProjectionsJobInput, RefreshExternalReferenceSnapshotsJobInput,
+        RunWorkReconciliationJobInput, WorkJobMetadata, WorkJobReport, WorkProjectionSet,
+    },
+    queries::ReconciliationReport,
     refs::{
-        BacklogId, BacklogRef, BlockerCauseRef, CapabilityRef, CapabilityRefSet, ChildWorkItemId,
-        CommitmentChangeReason, CommitmentChangeReasonKind, DependencyChangeReason,
-        DependencyChangeReasonKind, DependencyOrBlockerRef, DependencyReason, DependencyReasonKind,
-        EvidenceKind, EvidenceVerifiedState, ExternalEvidenceRef, ExternalSourceRef,
-        ExternalSourceSystem, FormalWorkIntent, FormalWorkRef, FormalWorkRefSet, GlobalMemberRef,
-        IterationChangeReason, IterationChangeReasonKind, IterationCloseReason,
-        IterationCloseReasonKind, IterationCommitmentChangeSet, IterationCommitmentId, IterationId,
-        IterationRef, MethodDefinitionRef, ProcessTimeboxRef, ProjectId, ProjectMemberId,
+        ArchiveHandoffScope, ArchiveHandoffScopeKind, ArchiveHandoffTargetKind,
+        ArchiveHandoffTargetRef, BacklogId, BacklogRef, BlockerCauseRef, CapabilityRef,
+        CapabilityRefSet, ChildWorkItemId, CommitmentChangeReason, CommitmentChangeReasonKind,
+        DependencyChangeReason, DependencyChangeReasonKind, DependencyOrBlockerRef,
+        DependencyReason, DependencyReasonKind, DerivedWorkViewRef, EvidenceKind,
+        EvidenceVerifiedState, ExternalEvidenceRef, ExternalReferenceRef, ExternalReferenceScope,
+        ExternalReferenceScopeKind, ExternalSourceRef, ExternalSourceSystem, ExternalVersionRef,
+        FormalWorkIntent, FormalWorkRef, FormalWorkRefSet, GlobalMemberRef, IterationChangeReason,
+        IterationChangeReasonKind, IterationCloseReason, IterationCloseReasonKind,
+        IterationCommitmentChangeSet, IterationCommitmentId, IterationId, IterationRef, JobRunId,
+        MethodDefinitionKind, MethodDefinitionRef, ProcessTimeboxRef, ProjectId, ProjectMemberId,
         ProjectMemberRef, ProjectOwnerKind, ProjectOwnerRef, ProjectRef, ProjectResponsibilityKind,
         PromoteReason, PromoteReasonKind, PromoteRejectReason, PromoteRejectReasonKind,
         PromoteResultId, PromoteResultRef, ResultId, SafeSummaryText, SourceDigest, SourceEventId,
-        SourceWorkKind, SourceWorkRef, TraceHandoffRef, WorkAuditSubjectRef, WorkAuditTrailId,
-        WorkBlockerId, WorkBlockerRef, WorkDependencyId, WorkDependencyRef, WorkItemId,
-        WorkLifecycleReason, WorkLifecycleReasonKind, WorkOutboxId, WorkSearchCriteriaDigest,
-        WorkSearchText, WorkTitle, WorkTraceId, WorkTraceRecordRefSet, WorkTraceSubjectRef,
-        WorkTruthChange, WorkTruthCursor,
+        SourceWorkKind, SourceWorkRef, TraceHandoffRef, TraceHandoffTargetKind,
+        TraceHandoffTargetRef, WorkAuditSubjectRef, WorkAuditTrailId, WorkBlockerId,
+        WorkBlockerRef, WorkDependencyId, WorkDependencyRef, WorkItemId, WorkLifecycleReason,
+        WorkLifecycleReasonKind, WorkOutboxId, WorkReconciliationScopeKind,
+        WorkReconciliationScopeRef, WorkSearchCriteriaDigest, WorkSearchText, WorkTitle,
+        WorkTraceId, WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange, WorkTruthCursor,
     },
 };
 
@@ -254,6 +265,11 @@ pub mod fixtures {
         )
     }
 
+    /// Returns the only supported P0 event schema version.
+    pub fn event_schema_version() -> EventSchemaVersion {
+        EventSchemaVersion::v1()
+    }
+
     /// Returns a deterministic method definition ref.
     pub fn method_definition_ref() -> MethodDefinitionRef {
         MethodDefinitionRef("method-definition-1".to_owned())
@@ -302,6 +318,31 @@ pub mod fixtures {
             external_ref: external_source_ref(),
             verified_state: EvidenceVerifiedState::Verified,
         }
+    }
+
+    /// Returns a deterministic external reference ref for an identity member.
+    pub fn member_external_reference_ref() -> ExternalReferenceRef {
+        ExternalReferenceRef::from_member(global_member_ref())
+    }
+
+    /// Returns a deterministic external reference ref for a method definition.
+    pub fn method_external_reference_ref() -> ExternalReferenceRef {
+        ExternalReferenceRef::from_method_definition(method_definition_ref())
+    }
+
+    /// Returns a deterministic external reference ref for a source work pointer.
+    pub fn source_external_reference_ref() -> ExternalReferenceRef {
+        ExternalReferenceRef::from_source_work(source_work_ref())
+    }
+
+    /// Returns a deterministic external reference ref for evidence.
+    pub fn evidence_external_reference_ref() -> ExternalReferenceRef {
+        ExternalReferenceRef::from_evidence(completion_evidence_ref())
+    }
+
+    /// Returns a deterministic external reference ref for a process timebox.
+    pub fn process_timebox_external_reference_ref() -> ExternalReferenceRef {
+        ExternalReferenceRef::from_process_timebox(process_timebox_ref())
     }
 
     /// Returns deterministic unverified blocker resolution evidence.
@@ -562,9 +603,75 @@ pub mod fixtures {
         }
     }
 
+    /// Returns a deterministic job run id.
+    pub fn job_run_id() -> JobRunId {
+        JobRunId("job-run-1".to_owned())
+    }
+
+    /// Returns deterministic job metadata.
+    pub fn job_metadata(idempotency_key: &str) -> WorkJobMetadata {
+        WorkJobMetadata {
+            job_run_id: job_run_id(),
+            actor: actor_context(),
+            command_metadata: command_metadata(idempotency_key),
+        }
+    }
+
+    /// Returns deterministic external reference scope.
+    pub fn external_reference_scope() -> ExternalReferenceScope {
+        ExternalReferenceScope {
+            scope_kind: ExternalReferenceScopeKind::ExplicitRefs,
+            project_ref: Some(project_ref()),
+            reference_refs: vec![
+                member_external_reference_ref(),
+                method_external_reference_ref(),
+            ],
+        }
+    }
+
+    /// Returns deterministic reconciliation scope.
+    pub fn reconciliation_scope_ref() -> WorkReconciliationScopeRef {
+        WorkReconciliationScopeRef {
+            scope_kind: WorkReconciliationScopeKind::Project,
+            project_ref: Some(project_ref()),
+            view_ref: None,
+            reference_ref: None,
+        }
+    }
+
+    /// Returns deterministic archive handoff scope.
+    pub fn archive_handoff_scope() -> ArchiveHandoffScope {
+        ArchiveHandoffScope {
+            scope_kind: ArchiveHandoffScopeKind::Subjects,
+            subject_refs: vec![project_trace_subject()],
+            source_cursor: Some(truth_cursor()),
+        }
+    }
+
+    /// Returns deterministic archive handoff target.
+    pub fn archive_handoff_target_ref() -> ArchiveHandoffTargetRef {
+        ArchiveHandoffTargetRef {
+            target_kind: ArchiveHandoffTargetKind::ArchiveStore,
+            external_ref: external_source_ref(),
+        }
+    }
+
+    /// Returns deterministic trace handoff target.
+    pub fn trace_handoff_target_ref() -> TraceHandoffTargetRef {
+        TraceHandoffTargetRef {
+            target_kind: TraceHandoffTargetKind::Observability,
+            external_ref: external_source_ref(),
+        }
+    }
+
     /// Returns a deterministic source event id.
     pub fn source_event_id() -> SourceEventId {
         SourceEventId("source-event-1".to_owned())
+    }
+
+    /// Returns a deterministic external version ref.
+    pub fn external_version_ref() -> ExternalVersionRef {
+        ExternalVersionRef("external-version-1".to_owned())
     }
 
     /// Returns a deterministic project trace subject.
@@ -581,6 +688,282 @@ pub mod fixtures {
     pub fn trace_record_ref_set() -> WorkTraceRecordRefSet {
         WorkTraceRecordRefSet {
             trace_ids: vec![trace_id()],
+        }
+    }
+
+    /// Returns deterministic publish-outbox job input.
+    pub fn publish_outbox_job_input() -> PublishWorkOutboxJobInput {
+        PublishWorkOutboxJobInput {
+            metadata: job_metadata("job-publish-outbox"),
+            page: PageRequest {
+                limit: 25,
+                page_token: Some(page_token("job-page-1")),
+            },
+        }
+    }
+
+    /// Returns deterministic rebuild-projections job input.
+    pub fn rebuild_projections_job_input() -> RebuildWorkProjectionsJobInput {
+        RebuildWorkProjectionsJobInput {
+            metadata: job_metadata("job-rebuild-projections"),
+            project_ref: project_ref(),
+            projection_set: WorkProjectionSet::All,
+        }
+    }
+
+    /// Returns deterministic refresh-references job input.
+    pub fn refresh_references_job_input() -> RefreshExternalReferenceSnapshotsJobInput {
+        RefreshExternalReferenceSnapshotsJobInput {
+            metadata: job_metadata("job-refresh-references"),
+            reference_scope: Some(external_reference_scope()),
+            page: PageRequest {
+                limit: 50,
+                page_token: None,
+            },
+        }
+    }
+
+    /// Returns deterministic reconciliation job input.
+    pub fn reconciliation_job_input() -> RunWorkReconciliationJobInput {
+        RunWorkReconciliationJobInput {
+            metadata: job_metadata("job-reconcile"),
+            scope_ref: reconciliation_scope_ref(),
+        }
+    }
+
+    /// Returns deterministic trace handoff job input.
+    pub fn trace_handoff_job_input() -> PrepareWorkTraceHandoffJobInput {
+        PrepareWorkTraceHandoffJobInput {
+            metadata: job_metadata("job-trace-handoff"),
+            subject_ref: project_trace_subject(),
+            target_ref: trace_handoff_target_ref(),
+        }
+    }
+
+    /// Returns deterministic archive handoff job input.
+    pub fn archive_handoff_job_input() -> PrepareArchiveHandoffJobInput {
+        PrepareArchiveHandoffJobInput {
+            metadata: job_metadata("job-archive-handoff"),
+            archive_scope: archive_handoff_scope(),
+            archive_target_ref: archive_handoff_target_ref(),
+        }
+    }
+
+    /// Returns deterministic work job report.
+    pub fn job_report() -> WorkJobReport {
+        WorkJobReport {
+            job_run_id: job_run_id(),
+            receipt: Some(WorkCommandReceipt::applied(
+                application_result_ref("job_run", "job-result-1"),
+                Some(trace_id()),
+                vec![outbox_id()],
+                3,
+            )),
+            scanned_count: 9,
+            changed_count: 4,
+            failed_refs: vec![source_external_reference_ref()],
+        }
+    }
+
+    /// Returns deterministic reconciliation report.
+    pub fn reconciliation_report() -> ReconciliationReport {
+        ReconciliationReport {
+            scope_ref: reconciliation_scope_ref(),
+            truth_cursor: truth_cursor(),
+            projection_gaps: vec![DerivedWorkViewRef::project_board(project_ref())],
+            outbox_gaps: vec![outbox_id()],
+            reference_gaps: vec![process_timebox_external_reference_ref()],
+        }
+    }
+
+    /// Returns deterministic inbound identity-member payload.
+    pub fn identity_member_changed_payload() -> crate::events::IdentityMemberChangedPayload {
+        crate::events::IdentityMemberChangedPayload {
+            member_ref: global_member_ref(),
+            capability_refs: capability_ref_set(),
+            source_version_ref: external_version_ref(),
+        }
+    }
+
+    /// Returns deterministic inbound method-definition payload.
+    pub fn method_definition_changed_payload() -> crate::events::MethodDefinitionChangedPayload {
+        crate::events::MethodDefinitionChangedPayload {
+            definition_ref: method_definition_ref(),
+            definition_kind: MethodDefinitionKind::Task,
+            source_version_ref: external_version_ref(),
+        }
+    }
+
+    /// Returns deterministic inbound conversation payload.
+    pub fn conversation_work_context_changed_payload()
+    -> crate::events::ConversationWorkContextChangedPayload {
+        crate::events::ConversationWorkContextChangedPayload {
+            source_ref: source_work_ref(),
+            source_digest: Some(SourceDigest("digest-1".to_owned())),
+        }
+    }
+
+    /// Returns deterministic inbound process timing payload.
+    pub fn process_timing_changed_payload() -> crate::events::ProcessTimingChangedPayload {
+        crate::events::ProcessTimingChangedPayload {
+            timebox_ref: process_timebox_ref(),
+            project_ref: Some(project_ref()),
+            source_version_ref: external_version_ref(),
+        }
+    }
+
+    /// Returns deterministic inbound governance decision payload.
+    pub fn governance_decision_changed_payload() -> crate::events::GovernanceDecisionChangedPayload
+    {
+        crate::events::GovernanceDecisionChangedPayload {
+            source_ref: source_work_ref(),
+            evidence_ref: Some(completion_evidence_ref()),
+            source_version_ref: external_version_ref(),
+        }
+    }
+
+    /// Returns deterministic inbound artifact evidence payload.
+    pub fn artifact_evidence_changed_payload() -> crate::events::ArtifactEvidenceChangedPayload {
+        crate::events::ArtifactEvidenceChangedPayload {
+            evidence_ref: completion_evidence_ref(),
+            source_version_ref: external_version_ref(),
+        }
+    }
+
+    /// Returns deterministic inbound runtime promote payload.
+    pub fn runtime_promote_requested_payload() -> crate::events::RuntimePromoteRequestedPayload {
+        crate::events::RuntimePromoteRequestedPayload {
+            source_ref: runtime_source_work_ref(),
+            promote_reason: promote_reason(),
+        }
+    }
+
+    /// Returns deterministic inbound event envelope.
+    pub fn inbound_event_envelope<T>(payload: T) -> crate::events::WorkInboundEventEnvelope<T> {
+        crate::events::WorkInboundEventEnvelope {
+            source_event_id: source_event_id(),
+            source_ref: external_source_ref(),
+            event_version: event_schema_version(),
+            trace_context_ref: trace_context_ref(),
+            occurred_at: request_metadata(None).requested_at,
+            payload,
+        }
+    }
+
+    /// Returns deterministic outbound event envelope.
+    pub fn outbound_event_envelope<T>(payload: T) -> crate::events::WorkOutboundEventEnvelope<T> {
+        crate::events::WorkOutboundEventEnvelope {
+            outbox_id: outbox_id(),
+            event_version: event_schema_version(),
+            trace_context_ref: trace_context_ref(),
+            occurred_at: request_metadata(None).requested_at,
+            payload,
+        }
+    }
+
+    /// Returns deterministic project changed payload.
+    pub fn project_changed_event() -> crate::events::ProjectChangedEvent {
+        crate::events::ProjectChangedEvent {
+            project_ref: project_ref(),
+            lifecycle_state: crate::states::ProjectLifecycleState::Active,
+            reason: crate::refs::ProjectLifecycleReason {
+                reason_kind: crate::refs::ProjectLifecycleReasonKind::OwnerRequest,
+                reason_ref: None,
+                note: Some(safe_summary("owner request")),
+            },
+        }
+    }
+
+    /// Returns deterministic backlog changed payload.
+    pub fn backlog_changed_event() -> crate::events::BacklogChangedEvent {
+        crate::events::BacklogChangedEvent {
+            backlog_ref: backlog_ref(),
+            project_ref: project_ref(),
+            backlog_state: crate::states::BacklogState::Open,
+            reason: crate::refs::BacklogMaintenanceReason {
+                reason_kind: crate::refs::BacklogMaintenanceReasonKind::ManualUnlock,
+                reason_ref: None,
+            },
+        }
+    }
+
+    /// Returns deterministic project-member changed payload.
+    pub fn project_member_changed_event() -> crate::events::ProjectMemberChangedEvent {
+        crate::events::ProjectMemberChangedEvent {
+            project_member_ref: project_member_ref(),
+            project_ref: project_ref(),
+            member_ref: global_member_ref(),
+            responsibility_state: crate::states::ProjectMemberResponsibilityState::Active,
+        }
+    }
+
+    /// Returns deterministic work-item changed payload.
+    pub fn work_item_changed_event() -> crate::events::WorkItemChangedEvent {
+        crate::events::WorkItemChangedEvent {
+            work_ref: formal_work_ref(),
+            project_ref: project_ref(),
+            work_state: crate::states::WorkItemState::InProgress,
+            source_ref: Some(source_work_ref()),
+            evidence_ref: Some(completion_evidence_ref()),
+        }
+    }
+
+    /// Returns deterministic promote-result recorded payload.
+    pub fn promote_result_recorded_event() -> crate::events::PromoteResultRecordedEvent {
+        crate::events::PromoteResultRecordedEvent {
+            promote_result_ref: promote_result_ref(),
+            source_ref: source_work_ref(),
+            result_state: crate::states::PromoteResultState::Accepted,
+            created_work_ref: Some(formal_work_ref()),
+        }
+    }
+
+    /// Returns deterministic dependency-changed payload.
+    pub fn work_dependency_changed_event() -> crate::events::WorkDependencyChangedEvent {
+        crate::events::WorkDependencyChangedEvent {
+            dependency_ref: work_dependency_ref(),
+            upstream_work_ref: formal_work_ref(),
+            downstream_work_ref: downstream_formal_work_ref(),
+            dependency_state: crate::states::DependencyState::Active,
+        }
+    }
+
+    /// Returns deterministic blocker-changed payload.
+    pub fn work_blocker_changed_event() -> crate::events::WorkBlockerChangedEvent {
+        crate::events::WorkBlockerChangedEvent {
+            blocker_ref: work_blocker_ref(),
+            blocked_work_ref: formal_work_ref(),
+            blocker_state: crate::states::BlockerState::Resolved,
+            evidence_ref: Some(blocker_resolution_evidence_ref()),
+        }
+    }
+
+    /// Returns deterministic iteration-changed payload.
+    pub fn iteration_changed_event() -> crate::events::IterationChangedEvent {
+        crate::events::IterationChangedEvent {
+            iteration_ref: iteration_ref(),
+            project_ref: project_ref(),
+            iteration_state: crate::states::IterationState::Committed,
+            commitment_state: Some(crate::states::CommitmentState::Committed),
+            affected_work_refs: vec![formal_work_ref(), child_formal_work_ref()],
+        }
+    }
+
+    /// Returns deterministic trace-available payload.
+    pub fn trace_available_event() -> crate::events::WorkTraceAvailableEvent {
+        crate::events::WorkTraceAvailableEvent {
+            subject_ref: project_trace_subject(),
+            trace_id: trace_id(),
+            handoff_ref: Some(trace_handoff_ref()),
+        }
+    }
+
+    /// Returns deterministic derived-view-changed payload.
+    pub fn derived_work_view_changed_event() -> crate::events::DerivedWorkViewChangedEvent {
+        crate::events::DerivedWorkViewChangedEvent {
+            view_ref: DerivedWorkViewRef::search(project_ref(), work_search_criteria_digest()),
+            freshness_state: crate::states::DerivedFreshnessState::Stale,
+            source_cursor: truth_cursor(),
         }
     }
 

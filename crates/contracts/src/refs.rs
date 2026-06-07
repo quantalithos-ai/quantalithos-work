@@ -76,6 +76,10 @@ string_newtype!(
     SourceDigest,
     "Digest supplied by an external source summary."
 );
+string_newtype!(
+    ExternalVersionRef,
+    "References an upstream version or cursor for inbound event snapshots."
+);
 string_newtype!(ResultId, "Stable result or receipt identifier.");
 string_newtype!(SourceEventId, "Identifies an upstream source event.");
 string_newtype!(
@@ -86,6 +90,7 @@ string_newtype!(
     ProcessTimeboxRef,
     "References one external process timebox."
 );
+string_newtype!(JobRunId, "Stable id for one operations job run.");
 
 /// Derived view category.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -282,6 +287,48 @@ pub enum ExternalSourceSystem {
     Artifact,
     /// Archive or observability boundary.
     Archive,
+}
+
+/// Stable key for one external reference snapshot entry.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum ExternalReferenceRef {
+    /// Identity member reference.
+    Member(GlobalMemberRef),
+    /// Method definition reference.
+    MethodDefinition(MethodDefinitionRef),
+    /// Conversation, runtime, governance, or artifact source reference.
+    SourceWork(SourceWorkRef),
+    /// Completion, blocker, governance, or artifact evidence reference.
+    Evidence(ExternalEvidenceRef),
+    /// Process timebox reference.
+    ProcessTimebox(ProcessTimeboxRef),
+}
+
+impl ExternalReferenceRef {
+    /// Creates an external reference key from a global member ref.
+    pub fn from_member(member_ref: GlobalMemberRef) -> Self {
+        Self::Member(member_ref)
+    }
+
+    /// Creates an external reference key from a method definition ref.
+    pub fn from_method_definition(definition_ref: MethodDefinitionRef) -> Self {
+        Self::MethodDefinition(definition_ref)
+    }
+
+    /// Creates an external reference key from a source work ref.
+    pub fn from_source_work(source_ref: SourceWorkRef) -> Self {
+        Self::SourceWork(source_ref)
+    }
+
+    /// Creates an external reference key from an evidence ref.
+    pub fn from_evidence(evidence_ref: ExternalEvidenceRef) -> Self {
+        Self::Evidence(evidence_ref)
+    }
+
+    /// Creates an external reference key from a process timebox ref.
+    pub fn from_process_timebox(timebox_ref: ProcessTimeboxRef) -> Self {
+        Self::ProcessTimebox(timebox_ref)
+    }
 }
 
 /// Kind of external owner for a Work project.
@@ -1110,6 +1157,96 @@ pub struct TraceHandoffIntent {
     pub target_ref: TraceHandoffTargetRef,
     /// Subject covered by the handoff.
     pub subject_ref: WorkTraceSubjectRef,
+}
+
+/// Scope prepared for archive handoff.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ArchiveHandoffScope {
+    /// Scope kind.
+    pub scope_kind: ArchiveHandoffScopeKind,
+    /// Work subjects included in the scope.
+    pub subject_refs: Vec<WorkTraceSubjectRef>,
+    /// Optional truth cursor covered by this handoff.
+    pub source_cursor: Option<WorkTruthCursor>,
+}
+
+/// Archive handoff scope kind.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArchiveHandoffScopeKind {
+    /// Archive selected Work subjects.
+    Subjects,
+    /// Archive a project up to the supplied cursor.
+    ProjectCursor,
+}
+
+/// Target for archive handoff.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ArchiveHandoffTargetRef {
+    /// Target kind.
+    pub target_kind: ArchiveHandoffTargetKind,
+    /// External pointer for the target.
+    pub external_ref: ExternalSourceRef,
+}
+
+/// Archive handoff target kind.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArchiveHandoffTargetKind {
+    /// General archive boundary.
+    ArchiveStore,
+    /// Compliance export boundary.
+    ComplianceExport,
+}
+
+/// Scope for refreshing external references.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ExternalReferenceScope {
+    /// Scope kind.
+    pub scope_kind: ExternalReferenceScopeKind,
+    /// Project scope when the kind is project-scoped.
+    pub project_ref: Option<ProjectRef>,
+    /// Explicit reference refs when the kind is explicit.
+    pub reference_refs: Vec<ExternalReferenceRef>,
+}
+
+/// External reference refresh scope kind.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExternalReferenceScopeKind {
+    /// Refresh stale references selected by repository.
+    StaleOnly,
+    /// Refresh references related to one project.
+    Project,
+    /// Refresh explicitly listed references.
+    ExplicitRefs,
+}
+
+/// Scope for reconciliation jobs.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct WorkReconciliationScopeRef {
+    /// Scope kind.
+    pub scope_kind: WorkReconciliationScopeKind,
+    /// Project scope when applicable.
+    pub project_ref: Option<ProjectRef>,
+    /// Derived view scope when applicable.
+    pub view_ref: Option<DerivedWorkViewRef>,
+    /// External reference scope when applicable.
+    pub reference_ref: Option<ExternalReferenceRef>,
+}
+
+/// Reconciliation scope kind.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkReconciliationScopeKind {
+    /// Inspect all Work reconciliation surfaces.
+    All,
+    /// Inspect one project.
+    Project,
+    /// Inspect one derived view.
+    DerivedView,
+    /// Inspect one external reference.
+    ExternalReference,
 }
 
 /// Summarizes the truth state used by minimal fixtures and tests.
