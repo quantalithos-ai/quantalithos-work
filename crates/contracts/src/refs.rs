@@ -527,6 +527,17 @@ pub struct ProjectLifecycleReason {
     pub note: Option<SafeSummaryText>,
 }
 
+impl ProjectLifecycleReason {
+    /// Returns the canonical create reason captured for initial project publication.
+    pub fn created() -> Self {
+        Self {
+            reason_kind: ProjectLifecycleReasonKind::Created,
+            reason_ref: None,
+            note: None,
+        }
+    }
+}
+
 /// Target responsibility state requested for a project member.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -552,6 +563,8 @@ pub struct ProjectMemberReason {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProjectLifecycleReasonKind {
+    /// The project was created.
+    Created,
     /// Transition required by policy.
     Policy,
     /// Transition driven by maintenance.
@@ -806,6 +819,64 @@ pub enum WorkOutboxEventKind {
     DerivedWorkViewChanged,
 }
 
+/// Typed outbox source identity used to rebuild outbound payloads from committed state.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum WorkOutboxSourceRef {
+    /// Project source with lifecycle reason captured at enqueue time.
+    Project {
+        /// Changed project.
+        project_ref: ProjectRef,
+        /// Lifecycle reason required by the outbound payload.
+        reason: ProjectLifecycleReason,
+    },
+    /// Backlog source with maintenance reason captured at enqueue time.
+    Backlog {
+        /// Changed backlog.
+        backlog_ref: BacklogRef,
+        /// Maintenance reason required by the outbound payload.
+        reason: BacklogMaintenanceReason,
+    },
+    /// Project member source.
+    ProjectMember(ProjectMemberRef),
+    /// Formal work source.
+    FormalWork(FormalWorkRef),
+    /// Promote result source.
+    PromoteResult(PromoteResultRef),
+    /// Dependency source.
+    Dependency(WorkDependencyRef),
+    /// Blocker source.
+    Blocker(WorkBlockerRef),
+    /// Iteration source.
+    Iteration(IterationRef),
+    /// Trace availability source.
+    TraceAvailable {
+        /// Trace that became available.
+        trace_id: WorkTraceId,
+        /// Optional handoff pointer.
+        handoff_ref: Option<TraceHandoffRef>,
+    },
+    /// Derived view freshness source.
+    DerivedView(DerivedWorkViewRef),
+}
+
+impl WorkOutboxSourceRef {
+    /// Returns the unique outbound event kind implied by this source identity.
+    pub fn event_kind(&self) -> WorkOutboxEventKind {
+        match self {
+            Self::Project { .. } => WorkOutboxEventKind::ProjectChanged,
+            Self::Backlog { .. } => WorkOutboxEventKind::BacklogChanged,
+            Self::ProjectMember(_) => WorkOutboxEventKind::ProjectMemberChanged,
+            Self::FormalWork(_) => WorkOutboxEventKind::WorkItemChanged,
+            Self::PromoteResult(_) => WorkOutboxEventKind::PromoteResultRecorded,
+            Self::Dependency(_) => WorkOutboxEventKind::WorkDependencyChanged,
+            Self::Blocker(_) => WorkOutboxEventKind::WorkBlockerChanged,
+            Self::Iteration(_) => WorkOutboxEventKind::IterationChanged,
+            Self::TraceAvailable { .. } => WorkOutboxEventKind::WorkTraceAvailable,
+            Self::DerivedView(_) => WorkOutboxEventKind::DerivedWorkViewChanged,
+        }
+    }
+}
+
 /// Failure reason recorded for an outbox publish attempt.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct OutboxFailureReason {
@@ -885,13 +956,13 @@ pub struct WorkTraceRecordRefSet {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum WorkTruthChange {
     /// A project was created.
-    ProjectCreated(ProjectRef),
+    ProjectCreated(ProjectRef, ProjectLifecycleReason),
     /// A project lifecycle changed.
-    ProjectLifecycleChanged(ProjectRef),
+    ProjectLifecycleChanged(ProjectRef, ProjectLifecycleReason),
     /// A project member responsibility changed.
     ProjectMemberChanged(ProjectMemberRef),
     /// A backlog availability state changed.
-    BacklogAvailabilityChanged(BacklogRef),
+    BacklogAvailabilityChanged(BacklogRef, BacklogMaintenanceReason),
     /// A formal work item changed.
     WorkItemChanged(FormalWorkRef),
     /// A promote result was recorded.
@@ -906,13 +977,14 @@ impl WorkTruthChange {
     /// Returns the trace subject implied by this truth change.
     pub fn subject_ref(&self) -> WorkTraceSubjectRef {
         match self {
-            Self::ProjectCreated(project_ref) | Self::ProjectLifecycleChanged(project_ref) => {
+            Self::ProjectCreated(project_ref, _)
+            | Self::ProjectLifecycleChanged(project_ref, _) => {
                 WorkTraceSubjectRef::Project(project_ref.clone())
             }
             Self::ProjectMemberChanged(project_member_ref) => {
                 WorkTraceSubjectRef::ProjectMember(project_member_ref.clone())
             }
-            Self::BacklogAvailabilityChanged(backlog_ref) => {
+            Self::BacklogAvailabilityChanged(backlog_ref, _) => {
                 WorkTraceSubjectRef::Backlog(backlog_ref.clone())
             }
             Self::WorkItemChanged(work_ref) => WorkTraceSubjectRef::FormalWork(work_ref.clone()),
@@ -931,13 +1003,14 @@ impl WorkTruthChange {
     /// Returns the audit subject implied by this truth change.
     pub fn audit_subject_ref(&self) -> WorkAuditSubjectRef {
         match self {
-            Self::ProjectCreated(project_ref) | Self::ProjectLifecycleChanged(project_ref) => {
+            Self::ProjectCreated(project_ref, _)
+            | Self::ProjectLifecycleChanged(project_ref, _) => {
                 WorkAuditSubjectRef::Project(project_ref.clone())
             }
             Self::ProjectMemberChanged(project_member_ref) => {
                 WorkAuditSubjectRef::ProjectMember(project_member_ref.clone())
             }
-            Self::BacklogAvailabilityChanged(backlog_ref) => {
+            Self::BacklogAvailabilityChanged(backlog_ref, _) => {
                 WorkAuditSubjectRef::Backlog(backlog_ref.clone())
             }
             Self::WorkItemChanged(work_ref) => WorkAuditSubjectRef::FormalWork(work_ref.clone()),
@@ -956,11 +1029,11 @@ impl WorkTruthChange {
     /// Returns the outbox event kind implied by this truth change.
     pub fn event_kind(&self) -> WorkOutboxEventKind {
         match self {
-            Self::ProjectCreated(_) | Self::ProjectLifecycleChanged(_) => {
+            Self::ProjectCreated(_, _) | Self::ProjectLifecycleChanged(_, _) => {
                 WorkOutboxEventKind::ProjectChanged
             }
             Self::ProjectMemberChanged(_) => WorkOutboxEventKind::ProjectMemberChanged,
-            Self::BacklogAvailabilityChanged(_) => WorkOutboxEventKind::BacklogChanged,
+            Self::BacklogAvailabilityChanged(_, _) => WorkOutboxEventKind::BacklogChanged,
             Self::WorkItemChanged(_) => WorkOutboxEventKind::WorkItemChanged,
             Self::PromoteResultRecorded(_) => WorkOutboxEventKind::PromoteResultRecorded,
             Self::WorkRelationChanged(DependencyOrBlockerRef::Dependency(_)) => {
@@ -972,6 +1045,76 @@ impl WorkTruthChange {
             Self::IterationChanged(_) => WorkOutboxEventKind::IterationChanged,
         }
     }
+
+    /// Returns the canonical typed outbox source derived from this accepted truth change.
+    pub fn outbox_source_ref(&self) -> WorkOutboxSourceRef {
+        match self {
+            Self::ProjectCreated(project_ref, reason)
+            | Self::ProjectLifecycleChanged(project_ref, reason) => WorkOutboxSourceRef::Project {
+                project_ref: project_ref.clone(),
+                reason: reason.clone(),
+            },
+            Self::ProjectMemberChanged(project_member_ref) => {
+                WorkOutboxSourceRef::ProjectMember(project_member_ref.clone())
+            }
+            Self::BacklogAvailabilityChanged(backlog_ref, reason) => WorkOutboxSourceRef::Backlog {
+                backlog_ref: backlog_ref.clone(),
+                reason: reason.clone(),
+            },
+            Self::WorkItemChanged(work_ref) => WorkOutboxSourceRef::FormalWork(work_ref.clone()),
+            Self::PromoteResultRecorded(promote_result_ref) => {
+                WorkOutboxSourceRef::PromoteResult(promote_result_ref.clone())
+            }
+            Self::WorkRelationChanged(DependencyOrBlockerRef::Dependency(dependency_ref)) => {
+                WorkOutboxSourceRef::Dependency(dependency_ref.clone())
+            }
+            Self::WorkRelationChanged(DependencyOrBlockerRef::Blocker(blocker_ref)) => {
+                WorkOutboxSourceRef::Blocker(blocker_ref.clone())
+            }
+            Self::IterationChanged(iteration_ref) => {
+                WorkOutboxSourceRef::Iteration(iteration_ref.clone())
+            }
+        }
+    }
+}
+
+/// Typed outbound publication assembled from a committed outbox record.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum WorkOutboundPublication {
+    /// Project changed publication.
+    ProjectChanged(crate::events::WorkOutboundEventEnvelope<crate::events::ProjectChangedEvent>),
+    /// Backlog changed publication.
+    BacklogChanged(crate::events::WorkOutboundEventEnvelope<crate::events::BacklogChangedEvent>),
+    /// Project member changed publication.
+    ProjectMemberChanged(
+        crate::events::WorkOutboundEventEnvelope<crate::events::ProjectMemberChangedEvent>,
+    ),
+    /// Formal work changed publication.
+    WorkItemChanged(crate::events::WorkOutboundEventEnvelope<crate::events::WorkItemChangedEvent>),
+    /// Promote result recorded publication.
+    PromoteResultRecorded(
+        crate::events::WorkOutboundEventEnvelope<crate::events::PromoteResultRecordedEvent>,
+    ),
+    /// Dependency changed publication.
+    WorkDependencyChanged(
+        crate::events::WorkOutboundEventEnvelope<crate::events::WorkDependencyChangedEvent>,
+    ),
+    /// Blocker changed publication.
+    WorkBlockerChanged(
+        crate::events::WorkOutboundEventEnvelope<crate::events::WorkBlockerChangedEvent>,
+    ),
+    /// Iteration changed publication.
+    IterationChanged(
+        crate::events::WorkOutboundEventEnvelope<crate::events::IterationChangedEvent>,
+    ),
+    /// Trace available publication.
+    WorkTraceAvailable(
+        crate::events::WorkOutboundEventEnvelope<crate::events::WorkTraceAvailableEvent>,
+    ),
+    /// Derived view changed publication.
+    DerivedWorkViewChanged(
+        crate::events::WorkOutboundEventEnvelope<crate::events::DerivedWorkViewChangedEvent>,
+    ),
 }
 
 /// Describes a formal collaborative work intent.

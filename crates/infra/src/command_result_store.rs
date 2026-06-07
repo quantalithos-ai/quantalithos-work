@@ -4,8 +4,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use work_application::StoredCommandResult;
-use work_application::{CommandResultRepository, RepositoryError, UnitOfWorkHandle};
+use work_application::{
+    CommandResultRepository, JobResultRepository, RepositoryError, StoredCommandResult,
+    StoredJobResult, UnitOfWorkHandle,
+};
 use work_contracts::ApplicationResultRef;
 
 /// P0 fake command result store keyed by `ApplicationResultRef`.
@@ -16,7 +18,8 @@ pub struct InMemoryCommandResultRepository {
 
 #[derive(Default)]
 struct Inner {
-    stored: HashMap<ApplicationResultRef, StoredCommandResult>,
+    stored_commands: HashMap<ApplicationResultRef, StoredCommandResult>,
+    stored_jobs: HashMap<ApplicationResultRef, StoredJobResult>,
     missing_reads: HashSet<ApplicationResultRef>,
 }
 
@@ -46,7 +49,7 @@ impl CommandResultRepository for InMemoryCommandResultRepository {
             .inner
             .lock()
             .map_err(|_| RepositoryError::StoreUnavailable)?;
-        inner.stored.insert(result_ref, result);
+        inner.stored_commands.insert(result_ref, result);
         Ok(())
     }
 
@@ -61,6 +64,37 @@ impl CommandResultRepository for InMemoryCommandResultRepository {
         if inner.missing_reads.contains(&result_ref) {
             return Ok(None);
         }
-        Ok(inner.stored.get(&result_ref).cloned())
+        Ok(inner.stored_commands.get(&result_ref).cloned())
+    }
+}
+
+#[async_trait]
+impl JobResultRepository for InMemoryCommandResultRepository {
+    async fn save_report(
+        &self,
+        result_ref: ApplicationResultRef,
+        result: StoredJobResult,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<(), RepositoryError> {
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        inner.stored_jobs.insert(result_ref, result);
+        Ok(())
+    }
+
+    async fn get_report(
+        &self,
+        result_ref: ApplicationResultRef,
+    ) -> Result<Option<StoredJobResult>, RepositoryError> {
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        if inner.missing_reads.contains(&result_ref) {
+            return Ok(None);
+        }
+        Ok(inner.stored_jobs.get(&result_ref).cloned())
     }
 }

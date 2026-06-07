@@ -6,6 +6,7 @@ mod errors;
 mod idempotency;
 mod iteration;
 mod member;
+mod outbox;
 mod ports;
 mod project;
 mod promote;
@@ -23,6 +24,7 @@ pub use idempotency::{
 };
 pub use iteration::IterationCommandService;
 pub use member::ProjectMemberCommandService;
+pub use outbox::WorkOutboxPublishService;
 pub use ports::{
     ActorMemberResolverPort, AuditRepository, BacklogRepository, ClockPort, DependencyRepository,
     EvidenceResolution, EvidenceResolverPort, FormalWorkRecord, FormalWorkScope, IdGeneratorPort,
@@ -32,12 +34,14 @@ pub use ports::{
     ProcessTimeboxResolverPort, ProjectBoardViewProjection, ProjectMemberRepository,
     ProjectRepository, ProjectionRepository, PromoteRepository, QueryActorMemberRef,
     ReferenceSnapshotRepository, RepositoryError, SourceWorkResolution, SourceWorkResolverPort,
-    WorkItemRepository, WorkOutboxRepository,
+    Versioned, WorkItemRepository, WorkOutboxPublisherPort, WorkOutboxRepository,
 };
 pub use project::ProjectCommandService;
 pub use promote::PromoteCommandService;
 pub use query::{AuthorizedWorkQueryService, WorkQueryVisibilityPolicy};
-pub use results::{CommandResultRepository, StoredCommandResult};
+pub use results::{
+    CommandResultRepository, JobResultRepository, StoredCommandResult, StoredJobResult,
+};
 pub use unit_of_work::{UnitOfWork, UnitOfWorkError, UnitOfWorkHandle, UnitOfWorkId};
 pub use work_domain::PendingPromoteIntake;
 pub use workitem::WorkItemCommandService;

@@ -949,14 +949,25 @@ mod tests {
         let outbox = WorkOutboxRecord::from_truth_change(
             fixtures::outbox_id(),
             fixtures::project_created_change(),
+            fixtures::trace_context_ref(),
+            fixtures::request_metadata(None).requested_at,
         )
         .expect("outbox from truth change should succeed");
         assert_eq!(outbox.event_kind, WorkOutboxEventKind::ProjectChanged);
         assert_eq!(outbox.publication_state, OutboxPublicationState::Pending);
+        assert_eq!(
+            outbox.source_ref,
+            work_contracts::WorkOutboxSourceRef::Project {
+                project_ref: fixtures::project_ref(),
+                reason: fixtures::project_created_reason(),
+            }
+        );
 
         let backlog_outbox = WorkOutboxRecord::from_truth_change(
             fixtures::outbox_id(),
             fixtures::backlog_changed_change(),
+            fixtures::trace_context_ref(),
+            fixtures::request_metadata(None).requested_at,
         )
         .expect("backlog outbox from truth change should succeed");
         assert_eq!(
@@ -978,6 +989,8 @@ mod tests {
         let member_outbox = WorkOutboxRecord::from_truth_change(
             fixtures::outbox_id(),
             fixtures::project_member_changed_change(),
+            fixtures::trace_context_ref(),
+            fixtures::request_metadata(None).requested_at,
         )
         .expect("member outbox should succeed");
         assert_eq!(
@@ -999,6 +1012,8 @@ mod tests {
         let work_outbox = WorkOutboxRecord::from_truth_change(
             fixtures::outbox_id(),
             WorkTruthChange::WorkItemChanged(fixtures::formal_work_ref()),
+            fixtures::trace_context_ref(),
+            fixtures::request_metadata(None).requested_at,
         )
         .expect("work outbox should succeed");
         assert_eq!(work_outbox.event_kind, WorkOutboxEventKind::WorkItemChanged);
@@ -1017,6 +1032,8 @@ mod tests {
         let promote_outbox = WorkOutboxRecord::from_truth_change(
             fixtures::outbox_id(),
             fixtures::promote_result_recorded_change(),
+            fixtures::trace_context_ref(),
+            fixtures::request_metadata(None).requested_at,
         )
         .expect("promote outbox should succeed");
         assert_eq!(
@@ -1040,6 +1057,8 @@ mod tests {
         let relation_outbox = WorkOutboxRecord::from_truth_change(
             fixtures::outbox_id(),
             fixtures::dependency_changed_change(),
+            fixtures::trace_context_ref(),
+            fixtures::request_metadata(None).requested_at,
         )
         .expect("relation outbox should succeed");
         assert_eq!(
@@ -1050,6 +1069,8 @@ mod tests {
         let blocker_outbox = WorkOutboxRecord::from_truth_change(
             fixtures::outbox_id(),
             fixtures::blocker_changed_change(),
+            fixtures::trace_context_ref(),
+            fixtures::request_metadata(None).requested_at,
         )
         .expect("blocker outbox should succeed");
         assert_eq!(
@@ -1071,6 +1092,8 @@ mod tests {
         let iteration_outbox = WorkOutboxRecord::from_truth_change(
             fixtures::outbox_id(),
             fixtures::iteration_changed_change(),
+            fixtures::trace_context_ref(),
+            fixtures::request_metadata(None).requested_at,
         )
         .expect("iteration outbox should succeed");
         assert_eq!(

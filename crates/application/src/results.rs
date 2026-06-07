@@ -3,10 +3,11 @@
 use async_trait::async_trait;
 
 use crate::{RepositoryError, UnitOfWorkHandle};
+use work_contracts::views::ReconciliationReport;
 use work_contracts::{
     ApplicationResultRef, BacklogCommandResult, BlockerCommandResult, DependencyCommandResult,
     IterationCommandResult, ProjectCommandResult, ProjectMemberCommandResult, PromoteCommandResult,
-    WorkItemCommandResult,
+    WorkItemCommandResult, WorkJobReport,
 };
 
 /// Stores public command result surfaces for idempotency duplicate replay.
@@ -25,6 +26,24 @@ pub trait CommandResultRepository: Send + Sync {
         &self,
         result_ref: ApplicationResultRef,
     ) -> Result<Option<StoredCommandResult>, RepositoryError>;
+}
+
+/// Stores public job report surfaces for idempotency duplicate replay.
+#[async_trait]
+pub trait JobResultRepository: Send + Sync {
+    /// Saves the job report surface under its stable application result ref.
+    async fn save_report(
+        &self,
+        result_ref: ApplicationResultRef,
+        result: StoredJobResult,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<(), RepositoryError>;
+
+    /// Loads a previously saved job report surface by result ref.
+    async fn get_report(
+        &self,
+        result_ref: ApplicationResultRef,
+    ) -> Result<Option<StoredJobResult>, RepositoryError>;
 }
 
 /// Application-local union of public command result DTOs.
@@ -46,6 +65,15 @@ pub enum StoredCommandResult {
     Blocker(BlockerCommandResult),
     /// Stored result for iteration command operations.
     Iteration(IterationCommandResult),
+}
+
+/// Application-local union of public operations job result DTOs.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum StoredJobResult {
+    /// Stored report for jobs returning the common Work job report.
+    WorkJob(WorkJobReport),
+    /// Stored report for reconciliation jobs.
+    Reconciliation(ReconciliationReport),
 }
 
 impl StoredCommandResult {
@@ -148,6 +176,40 @@ impl StoredCommandResult {
         match self {
             Self::Iteration(result) if result.receipt.result_ref.operation == *operation => {
                 Some(result)
+            }
+            _ => None,
+        }
+    }
+}
+
+impl StoredJobResult {
+    /// Returns the stored common work-job report when the operation expects it.
+    pub fn into_work_job_report(
+        self,
+        operation: &core_contracts::metadata::OperationName,
+    ) -> Option<WorkJobReport> {
+        match self {
+            Self::WorkJob(report)
+                if report
+                    .receipt
+                    .as_ref()
+                    .map(|receipt| receipt.result_ref.operation == *operation)
+                    .unwrap_or(false) =>
+            {
+                Some(report)
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns the stored reconciliation report when the operation expects it.
+    pub fn into_reconciliation_report(
+        self,
+        operation: &core_contracts::metadata::OperationName,
+    ) -> Option<ReconciliationReport> {
+        match self {
+            Self::Reconciliation(report) if operation.as_str() == "run_work_reconciliation" => {
+                Some(report)
             }
             _ => None,
         }

@@ -1,11 +1,13 @@
 //! In-memory outbox store for CORE command service tests.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use core_contracts::metadata::{PageRequest, Version};
-use work_application::{Page, PageInfo, RepositoryError, UnitOfWorkHandle, WorkOutboxRepository};
+use work_application::{
+    Page, PageInfo, RepositoryError, UnitOfWorkHandle, Versioned, WorkOutboxRepository,
+};
 use work_contracts::{OutboxFailureReason, OutboxPublicationRef, OutboxRetryReason, WorkOutboxId};
 use work_domain::WorkOutboxRecord;
 
@@ -13,6 +15,7 @@ use work_domain::WorkOutboxRecord;
 #[derive(Clone, Default)]
 pub struct InMemoryWorkOutboxRepository {
     state: Arc<Mutex<HashMap<String, (WorkOutboxRecord, Version)>>>,
+    version_conflicts: Arc<Mutex<HashSet<String>>>,
 }
 
 impl InMemoryWorkOutboxRepository {
@@ -27,6 +30,13 @@ impl InMemoryWorkOutboxRepository {
             .lock()
             .map(|state| state.len())
             .unwrap_or_default()
+    }
+
+    /// Forces one outbox id to return a version conflict on the next state marker update.
+    pub fn inject_version_conflict(&self, outbox_id: &WorkOutboxId) {
+        if let Ok(mut conflicts) = self.version_conflicts.lock() {
+            conflicts.insert(outbox_id.0.clone());
+        }
     }
 }
 
@@ -48,18 +58,22 @@ impl WorkOutboxRepository for InMemoryWorkOutboxRepository {
     async fn list_pending(
         &self,
         _page: PageRequest,
-    ) -> Result<Page<WorkOutboxRecord>, RepositoryError> {
+    ) -> Result<Page<Versioned<WorkOutboxRecord>>, RepositoryError> {
         let state = self
             .state
             .lock()
             .map_err(|_| RepositoryError::StoreUnavailable)?;
-        let items = state
+        let mut items = state
             .values()
-            .filter_map(|(record, _)| {
+            .filter_map(|(record, version)| {
                 (record.publication_state == work_contracts::OutboxPublicationState::Pending)
-                    .then_some(record.clone())
+                    .then_some(Versioned {
+                        record: record.clone(),
+                        version: *version,
+                    })
             })
-            .collect();
+            .collect::<Vec<_>>();
+        items.sort_by(|left, right| left.record.outbox_id.0.cmp(&right.record.outbox_id.0));
         Ok(Page {
             items,
             page_info: PageInfo {
@@ -72,12 +86,15 @@ impl WorkOutboxRepository for InMemoryWorkOutboxRepository {
     async fn get(
         &self,
         outbox_id: WorkOutboxId,
-    ) -> Result<Option<WorkOutboxRecord>, RepositoryError> {
+    ) -> Result<Option<Versioned<WorkOutboxRecord>>, RepositoryError> {
         let state = self
             .state
             .lock()
             .map_err(|_| RepositoryError::StoreUnavailable)?;
-        Ok(state.get(&outbox_id.0).map(|(record, _)| record.clone()))
+        Ok(state.get(&outbox_id.0).map(|(record, version)| Versioned {
+            record: record.clone(),
+            version: *version,
+        }))
     }
 
     async fn mark_published(
@@ -87,6 +104,14 @@ impl WorkOutboxRepository for InMemoryWorkOutboxRepository {
         expected_version: Version,
         _uow: &UnitOfWorkHandle,
     ) -> Result<Version, RepositoryError> {
+        if self
+            .version_conflicts
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?
+            .remove(&outbox_id.0)
+        {
+            return Err(RepositoryError::VersionConflict);
+        }
         let mut state = self
             .state
             .lock()
@@ -111,6 +136,14 @@ impl WorkOutboxRepository for InMemoryWorkOutboxRepository {
         expected_version: Version,
         _uow: &UnitOfWorkHandle,
     ) -> Result<Version, RepositoryError> {
+        if self
+            .version_conflicts
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?
+            .remove(&outbox_id.0)
+        {
+            return Err(RepositoryError::VersionConflict);
+        }
         let mut state = self
             .state
             .lock()

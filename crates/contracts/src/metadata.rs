@@ -866,11 +866,7 @@ pub mod fixtures {
         crate::events::ProjectChangedEvent {
             project_ref: project_ref(),
             lifecycle_state: crate::states::ProjectLifecycleState::Active,
-            reason: crate::refs::ProjectLifecycleReason {
-                reason_kind: crate::refs::ProjectLifecycleReasonKind::OwnerRequest,
-                reason_ref: None,
-                note: Some(safe_summary("owner request")),
-            },
+            reason: project_created_reason(),
         }
     }
 
@@ -969,12 +965,12 @@ pub mod fixtures {
 
     /// Returns a deterministic project-created change.
     pub fn project_created_change() -> WorkTruthChange {
-        WorkTruthChange::ProjectCreated(project_ref())
+        WorkTruthChange::ProjectCreated(project_ref(), project_created_reason())
     }
 
     /// Returns a deterministic backlog-availability change.
     pub fn backlog_changed_change() -> WorkTruthChange {
-        WorkTruthChange::BacklogAvailabilityChanged(backlog_ref())
+        WorkTruthChange::BacklogAvailabilityChanged(backlog_ref(), backlog_changed_reason())
     }
 
     /// Returns a deterministic project-member change.
@@ -1012,5 +1008,18 @@ pub mod fixtures {
     /// Returns a deterministic trace context ref.
     pub fn trace_context_ref() -> WorkTraceContextRef {
         WorkTraceContextRef::from_metadata(&request_metadata(None))
+    }
+
+    /// Returns the deterministic project-created lifecycle reason.
+    pub fn project_created_reason() -> crate::refs::ProjectLifecycleReason {
+        crate::refs::ProjectLifecycleReason::created()
+    }
+
+    /// Returns the deterministic backlog changed reason.
+    pub fn backlog_changed_reason() -> crate::refs::BacklogMaintenanceReason {
+        crate::refs::BacklogMaintenanceReason {
+            reason_kind: crate::refs::BacklogMaintenanceReasonKind::ManualUnlock,
+            reason_ref: None,
+        }
     }
 }

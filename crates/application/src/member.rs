@@ -161,6 +161,7 @@ where
         let outbox_id = match self
             .enqueue_outbox(
                 WorkTruthChange::ProjectMemberChanged(member_ref.clone()),
+                &envelope.metadata.request,
                 &uow,
             )
             .await
@@ -324,6 +325,7 @@ where
         let outbox_id = match self
             .enqueue_outbox(
                 WorkTruthChange::ProjectMemberChanged(member_ref.clone()),
+                &envelope.metadata.request,
                 &uow,
             )
             .await
@@ -534,14 +536,20 @@ where
     async fn enqueue_outbox(
         &self,
         change: WorkTruthChange,
+        request: &RequestMetadata,
         uow: &UnitOfWorkHandle,
     ) -> Result<work_contracts::WorkOutboxId, ApplicationError> {
         let outbox_id = self
             .ids
             .next_outbox_id()
             .map_err(Self::map_member_port_error)?;
-        let outbox = work_domain::WorkOutboxRecord::from_truth_change(outbox_id.clone(), change)
-            .map_err(Self::map_domain_error)?;
+        let outbox = work_domain::WorkOutboxRecord::from_truth_change(
+            outbox_id.clone(),
+            change,
+            work_contracts::WorkTraceContextRef::from_metadata(request),
+            self.clock.now().map_err(Self::map_member_port_error)?,
+        )
+        .map_err(Self::map_domain_error)?;
         self.outbox_repo
             .enqueue(outbox, uow)
             .await

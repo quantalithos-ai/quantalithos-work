@@ -1,10 +1,11 @@
 //! Trace, audit, and outbox helper domain objects.
 
+use core_contracts::metadata::Timestamp;
 use work_contracts::{
     OutboxFailureReason, OutboxPublicationRef, OutboxRetryReason, TraceHandoffIntent,
     TraceHandoffRef, TraceHandoffTargetRef, WorkAuditSubjectRef, WorkAuditTrailId,
-    WorkOutboxEventKind, WorkOutboxId, WorkTraceContextRef, WorkTraceId, WorkTraceRecordRefSet,
-    WorkTraceSubjectRef, WorkTruthChange,
+    WorkOutboxEventKind, WorkOutboxId, WorkOutboxSourceRef, WorkTraceContextRef, WorkTraceId,
+    WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange,
 };
 
 use crate::DomainError;
@@ -163,6 +164,12 @@ pub struct WorkOutboxRecord {
     pub outbox_id: WorkOutboxId,
     /// Work event category.
     pub event_kind: WorkOutboxEventKind,
+    /// Typed source identity used to rebuild the outbound payload.
+    pub source_ref: WorkOutboxSourceRef,
+    /// Core trace and request context captured when the source change was accepted.
+    pub trace_context_ref: WorkTraceContextRef,
+    /// Time when the source change became publishable.
+    pub occurred_at: Timestamp,
     /// Current publication state.
     pub publication_state: work_contracts::OutboxPublicationState,
 }
@@ -172,10 +179,32 @@ impl WorkOutboxRecord {
     pub fn from_truth_change(
         outbox_id: WorkOutboxId,
         change: WorkTruthChange,
+        trace_context_ref: WorkTraceContextRef,
+        occurred_at: Timestamp,
     ) -> Result<Self, DomainError> {
         Ok(Self {
             outbox_id,
             event_kind: change.event_kind(),
+            source_ref: change.outbox_source_ref(),
+            trace_context_ref,
+            occurred_at,
+            publication_state: work_contracts::OutboxPublicationState::Pending,
+        })
+    }
+
+    /// Builds an outbox record from an explicit non-truth publication source.
+    pub fn from_event_source(
+        outbox_id: WorkOutboxId,
+        source_ref: WorkOutboxSourceRef,
+        trace_context_ref: WorkTraceContextRef,
+        occurred_at: Timestamp,
+    ) -> Result<Self, DomainError> {
+        Ok(Self {
+            outbox_id,
+            event_kind: source_ref.event_kind(),
+            source_ref,
+            trace_context_ref,
+            occurred_at,
             publication_state: work_contracts::OutboxPublicationState::Pending,
         })
     }

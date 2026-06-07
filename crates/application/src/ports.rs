@@ -16,8 +16,8 @@ use work_contracts::{
     OutboxFailureReason, OutboxPublicationRef, OutboxRetryReason, ProcessTimeboxRef,
     ProcessTimeboxSummary, ProjectMemberId, ProjectMemberRef, ProjectOwnerRef, ProjectRef,
     PromoteResultRef, SourceWorkRef, WorkAuditSubjectRef, WorkBlockerId, WorkBlockerRef,
-    WorkDependencyId, WorkDependencyRef, WorkOutboxId, WorkSearchCriteria, WorkTraceSubjectRef,
-    WorkTruthCursor,
+    WorkDependencyId, WorkDependencyRef, WorkOutboundPublication, WorkOutboxId, WorkSearchCriteria,
+    WorkTraceSubjectRef, WorkTruthCursor,
 };
 use work_domain::{
     Backlog, ChildWorkItem, DependencyChangeRecord, DependencyGraphSnapshot, DerivedWorkViewState,
@@ -43,6 +43,15 @@ pub struct PageInfo {
     pub next_page_token: Option<PageToken>,
     /// Whether more repository items may exist.
     pub has_more: bool,
+}
+
+/// One repository-loaded record paired with its current optimistic version.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Versioned<T> {
+    /// Stored record payload.
+    pub record: T,
+    /// Current optimistic version for subsequent write paths.
+    pub version: Version,
 }
 
 /// Classifies persistence and local store failures before service mapping.
@@ -677,13 +686,13 @@ pub trait WorkOutboxRepository: Send + Sync {
     async fn list_pending(
         &self,
         page: PageRequest,
-    ) -> Result<Page<WorkOutboxRecord>, RepositoryError>;
+    ) -> Result<Page<Versioned<WorkOutboxRecord>>, RepositoryError>;
 
     /// Loads one outbox record.
     async fn get(
         &self,
         outbox_id: WorkOutboxId,
-    ) -> Result<Option<WorkOutboxRecord>, RepositoryError>;
+    ) -> Result<Option<Versioned<WorkOutboxRecord>>, RepositoryError>;
 
     /// Marks an outbox record as published.
     async fn mark_published(
@@ -711,6 +720,16 @@ pub trait WorkOutboxRepository: Send + Sync {
         expected_version: Version,
         uow: &UnitOfWorkHandle,
     ) -> Result<Version, RepositoryError>;
+}
+
+/// Publishes one fully-built outbound event envelope through a runtime publisher seam.
+#[async_trait]
+pub trait WorkOutboxPublisherPort: Send + Sync {
+    /// Publishes one committed outbound publication and returns the downstream publication ref.
+    async fn publish(
+        &self,
+        publication: WorkOutboundPublication,
+    ) -> Result<OutboxPublicationRef, PortError>;
 }
 
 /// Stores derived Work read views and their freshness state.

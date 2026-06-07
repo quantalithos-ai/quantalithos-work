@@ -55,6 +55,18 @@ pub struct WorkJobReport {
     pub failed_refs: Vec<ExternalReferenceRef>,
 }
 
+impl WorkJobReport {
+    /// Returns a duplicate replay view while preserving the stored report surface.
+    pub fn with_duplicate_receipt(&self) -> Self {
+        let mut report = self.clone();
+        report.receipt = report
+            .receipt
+            .as_ref()
+            .map(WorkCommandReceipt::with_duplicate_overlay);
+        report
+    }
+}
+
 /// Publishes pending Work outbox records.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PublishWorkOutboxJobInput {

@@ -36,14 +36,14 @@ impl WorkTruthPolicy {
         }
 
         match change {
-            WorkTruthChange::ProjectCreated(project_ref)
-            | WorkTruthChange::ProjectLifecycleChanged(project_ref) => {
+            WorkTruthChange::ProjectCreated(project_ref, _)
+            | WorkTruthChange::ProjectLifecycleChanged(project_ref, _) => {
                 if project_ref != self.policy_scope.project_ref {
                     return Err(DomainError::RefMismatch);
                 }
             }
             WorkTruthChange::ProjectMemberChanged(_)
-            | WorkTruthChange::BacklogAvailabilityChanged(_) => {}
+            | WorkTruthChange::BacklogAvailabilityChanged(_, _) => {}
             WorkTruthChange::WorkItemChanged(work_ref) => {
                 if self.policy_scope.work_ref.as_ref() != Some(&work_ref) {
                     return Err(DomainError::RefMismatch);

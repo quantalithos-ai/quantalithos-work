@@ -92,7 +92,10 @@ where
         let trace_id = self.ids.next_trace_id().map_err(Self::map_port_error)?;
         let trace = WorkTraceRecord::from_truth_change(
             trace_id.clone(),
-            WorkTruthChange::ProjectCreated(project_ref.clone()),
+            WorkTruthChange::ProjectCreated(
+                project_ref.clone(),
+                work_contracts::ProjectLifecycleReason::created(),
+            ),
             work_contracts::WorkTraceContextRef::from_metadata(&envelope.metadata.request),
         )
         .map_err(Self::map_domain_error)?;
@@ -104,14 +107,22 @@ where
         let mut audit = match self
             .audit_repo
             .get_audit_trail(
-                WorkTruthChange::ProjectCreated(project_ref.clone()).audit_subject_ref(),
+                WorkTruthChange::ProjectCreated(
+                    project_ref.clone(),
+                    work_contracts::ProjectLifecycleReason::created(),
+                )
+                .audit_subject_ref(),
             )
             .await
             .map_err(Self::map_repository_error)?
         {
             Some(existing) => existing,
             None => WorkAuditTrail::start_for_subject(
-                WorkTruthChange::ProjectCreated(project_ref.clone()).audit_subject_ref(),
+                WorkTruthChange::ProjectCreated(
+                    project_ref.clone(),
+                    work_contracts::ProjectLifecycleReason::created(),
+                )
+                .audit_subject_ref(),
             ),
         };
         let expected_audit_version = if audit.has_gap() { None } else { Some(1) };
@@ -125,7 +136,12 @@ where
         let outbox_id = self.ids.next_outbox_id().map_err(Self::map_port_error)?;
         let outbox = WorkOutboxRecord::from_truth_change(
             outbox_id.clone(),
-            WorkTruthChange::ProjectCreated(project_ref.clone()),
+            WorkTruthChange::ProjectCreated(
+                project_ref.clone(),
+                work_contracts::ProjectLifecycleReason::created(),
+            ),
+            work_contracts::WorkTraceContextRef::from_metadata(&envelope.metadata.request),
+            self.clock.now().map_err(Self::map_port_error)?,
         )
         .map_err(Self::map_domain_error)?;
         self.outbox_repo
@@ -180,6 +196,7 @@ where
         };
         let actor = envelope.actor.actor_ref().clone();
         let request = envelope.command;
+        let project_reason = request.reason.clone();
         let mut project = self
             .project_repo
             .get(request.project_ref.clone())
@@ -198,14 +215,21 @@ where
 
         let trace_id = self
             .append_trace_and_audit(
-                WorkTruthChange::ProjectLifecycleChanged(project_ref.clone()),
+                WorkTruthChange::ProjectLifecycleChanged(
+                    project_ref.clone(),
+                    project_reason.clone(),
+                ),
                 &envelope.metadata.request,
                 &uow,
             )
             .await?;
         let mut outbox_refs = vec![
             self.enqueue_outbox(
-                WorkTruthChange::ProjectLifecycleChanged(project_ref.clone()),
+                WorkTruthChange::ProjectLifecycleChanged(
+                    project_ref.clone(),
+                    project_reason.clone(),
+                ),
+                &envelope.metadata.request,
                 &uow,
             )
             .await?,
@@ -228,15 +252,26 @@ where
                 .await
                 .map_err(Self::map_repository_error)?;
             let backlog_ref = backlog.backlog_ref();
+            let archive_reason = work_contracts::BacklogMaintenanceReason {
+                reason_kind: work_contracts::BacklogMaintenanceReasonKind::PolicyHold,
+                reason_ref: None,
+            };
             self.append_trace_and_audit(
-                WorkTruthChange::BacklogAvailabilityChanged(backlog_ref.clone()),
+                WorkTruthChange::BacklogAvailabilityChanged(
+                    backlog_ref.clone(),
+                    archive_reason.clone(),
+                ),
                 &envelope.metadata.request,
                 &uow,
             )
             .await?;
             outbox_refs.push(
                 self.enqueue_outbox(
-                    WorkTruthChange::BacklogAvailabilityChanged(backlog_ref.clone()),
+                    WorkTruthChange::BacklogAvailabilityChanged(
+                        backlog_ref.clone(),
+                        archive_reason,
+                    ),
+                    &envelope.metadata.request,
                     &uow,
                 )
                 .await?,
@@ -287,6 +322,7 @@ where
         };
         let actor = envelope.actor.actor_ref().clone();
         let request = envelope.command;
+        let backlog_reason = request.reason.clone();
         let mut backlog = self
             .backlog_repo
             .get(request.backlog_ref.clone())
@@ -309,14 +345,18 @@ where
             .map_err(Self::map_repository_error)?;
         let trace_id = self
             .append_trace_and_audit(
-                WorkTruthChange::BacklogAvailabilityChanged(backlog_ref.clone()),
+                WorkTruthChange::BacklogAvailabilityChanged(
+                    backlog_ref.clone(),
+                    backlog_reason.clone(),
+                ),
                 &envelope.metadata.request,
                 &uow,
             )
             .await?;
         let outbox_id = self
             .enqueue_outbox(
-                WorkTruthChange::BacklogAvailabilityChanged(backlog_ref.clone()),
+                WorkTruthChange::BacklogAvailabilityChanged(backlog_ref.clone(), backlog_reason),
+                &envelope.metadata.request,
                 &uow,
             )
             .await?;
@@ -493,11 +533,17 @@ where
     async fn enqueue_outbox(
         &self,
         change: WorkTruthChange,
+        request: &RequestMetadata,
         uow: &UnitOfWorkHandle,
     ) -> Result<work_contracts::WorkOutboxId, ApplicationError> {
         let outbox_id = self.ids.next_outbox_id().map_err(Self::map_port_error)?;
-        let outbox = WorkOutboxRecord::from_truth_change(outbox_id.clone(), change)
-            .map_err(Self::map_domain_error)?;
+        let outbox = WorkOutboxRecord::from_truth_change(
+            outbox_id.clone(),
+            change,
+            work_contracts::WorkTraceContextRef::from_metadata(request),
+            self.clock.now().map_err(Self::map_port_error)?,
+        )
+        .map_err(Self::map_domain_error)?;
         self.outbox_repo
             .enqueue(outbox, uow)
             .await

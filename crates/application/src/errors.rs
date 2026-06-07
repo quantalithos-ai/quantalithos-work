@@ -37,6 +37,9 @@ pub enum ApplicationError {
     /// Duplicate replay could not load the stored result surface.
     #[error("duplicate result missing")]
     DuplicateResultMissing,
+    /// The outbox record source identity does not match its event kind or cannot build a payload.
+    #[error("invalid outbox source")]
+    InvalidOutboxSource,
 }
 
 impl ApplicationError {
@@ -52,7 +55,8 @@ impl ApplicationError {
             Self::ExternalReferenceUnresolved => WorkProtocolError::ExternalReferenceUnresolved,
             Self::TemporarilyUnavailable
             | Self::CommitStatusUnknown
-            | Self::DuplicateResultMissing => WorkProtocolError::TemporarilyUnavailable,
+            | Self::DuplicateResultMissing
+            | Self::InvalidOutboxSource => WorkProtocolError::TemporarilyUnavailable,
         }
     }
 }

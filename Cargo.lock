@@ -222,8 +222,10 @@ name = "work-jobs"
 version = "0.1.0"
 dependencies = [
  "core-contracts",
+ "tokio",
  "work-application",
  "work-contracts",
+ "work-domain",
  "work-infra",
 ]
 

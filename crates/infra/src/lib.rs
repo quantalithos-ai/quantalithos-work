@@ -5,6 +5,7 @@ pub mod command_result_store;
 pub mod config;
 pub mod idempotency_store;
 pub mod outbox_store;
+pub mod publishers;
 pub mod repositories;
 pub mod runtime_builder;
 pub mod source_resolvers;

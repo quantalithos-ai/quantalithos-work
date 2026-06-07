@@ -74,10 +74,10 @@ pub use refs::{
     TraceHandoffRef, TraceHandoffTargetKind, TraceHandoffTargetRef, WorkAuditSubjectRef,
     WorkAuditTrailId, WorkBlockerId, WorkBlockerRef, WorkDependencyId, WorkDependencyRef,
     WorkItemId, WorkLifecycleReason, WorkLifecycleReasonKind, WorkLifecycleTarget,
-    WorkOutboxEventKind, WorkOutboxId, WorkPolicyScope, WorkReconciliationScopeKind,
-    WorkReconciliationScopeRef, WorkSearchCriteriaDigest, WorkSearchText, WorkTitle, WorkTraceId,
-    WorkTraceRecordRefSet, WorkTraceSubjectRef, WorkTruthChange, WorkTruthCursor,
-    WorkTruthSnapshot,
+    WorkOutboundPublication, WorkOutboxEventKind, WorkOutboxId, WorkOutboxSourceRef,
+    WorkPolicyScope, WorkReconciliationScopeKind, WorkReconciliationScopeRef,
+    WorkSearchCriteriaDigest, WorkSearchText, WorkTitle, WorkTraceId, WorkTraceRecordRefSet,
+    WorkTraceSubjectRef, WorkTruthChange, WorkTruthCursor, WorkTruthSnapshot,
 };
 pub use states::{
     BacklogAvailabilityTarget, BacklogState, BlockerState, CommitmentState, DependencyState,
@@ -371,12 +371,16 @@ mod tests {
             subject_ref: fixtures::project_trace_subject(),
         });
 
-        roundtrip(&WorkTruthChange::ProjectCreated(fixtures::project_ref()));
+        roundtrip(&WorkTruthChange::ProjectCreated(
+            fixtures::project_ref(),
+            fixtures::project_created_reason(),
+        ));
         roundtrip(&WorkTruthChange::ProjectMemberChanged(
             fixtures::project_member_ref(),
         ));
         roundtrip(&WorkTruthChange::BacklogAvailabilityChanged(
             fixtures::backlog_ref(),
+            fixtures::backlog_changed_reason(),
         ));
         roundtrip(&WorkTruthChange::WorkItemChanged(
             fixtures::formal_work_ref(),
