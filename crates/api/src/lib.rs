@@ -1,20 +1,23 @@
 //! API entrypoints for the Work bounded context.
 
 use work_application::{
-    ApplicationError, DependencyBlockerService, IterationCommandService, ProjectCommandService,
-    ProjectMemberCommandService, PromoteCommandService, WorkItemCommandService,
+    ApplicationError, AuthorizedWorkQueryService, DependencyBlockerService,
+    IterationCommandService, ProjectCommandService, ProjectMemberCommandService,
+    PromoteCommandService, WorkItemCommandService,
 };
 use work_contracts::{
     AssignProjectMemberRequest, BacklogCommandResult, BlockerCommandResult,
     CommitIterationScopeRequest, CreateChildWorkItemRequest, CreateProjectRequest,
-    CreateWorkItemRequest, DependencyCommandResult, IterationCommandResult,
-    LinkWorkDependencyRequest, OpenIterationRequest, OpenWorkBlockerRequest, ProjectCommandResult,
-    ProjectMemberCommandResult, PromoteCommandResult, RequestWorkPromotionRequest,
-    ResolveWorkBlockerRequest, ReviewWorkPromotionRequest, UpdateBacklogAvailabilityRequest,
+    CreateWorkItemRequest, DependencyCommandResult, GetBacklogRequest, GetIterationSummaryRequest,
+    GetProjectBoardViewRequest, GetProjectWorkFactsRequest, GetWorkItemRequest,
+    GetWorkTraceRequest, IterationCommandResult, LinkWorkDependencyRequest, ListMemberWorkRequest,
+    OpenIterationRequest, OpenWorkBlockerRequest, ProjectCommandResult, ProjectMemberCommandResult,
+    PromoteCommandResult, RequestWorkPromotionRequest, ResolveWorkBlockerRequest,
+    ReviewWorkPromotionRequest, SearchWorkRequest, UpdateBacklogAvailabilityRequest,
     UpdateIterationCommitmentRequest, UpdateIterationLifecycleRequest,
     UpdateProjectLifecycleRequest, UpdateProjectMemberResponsibilityRequest,
     UpdateWorkDependencyStateRequest, UpdateWorkItemLifecycleRequest, WorkCommandEnvelope,
-    WorkItemCommandResult, WorkProtocolError,
+    WorkItemCommandResult, WorkProtocolError, WorkQueryEnvelope, WorkQueryResponse,
 };
 
 /// Thin command handlers that validate protocol shape and delegate to application services.
@@ -31,6 +34,19 @@ pub struct WorkCommandHandlers<P, M, W, PR, D, I> {
     pub dependency_service: D,
     /// Iteration command service.
     pub iteration_service: I,
+}
+
+/// Thin query handlers that validate protocol shape and delegate to application services.
+pub struct WorkQueryHandlers<Q> {
+    /// Authorized read-only query service.
+    pub query_service: Q,
+}
+
+impl<Q> WorkQueryHandlers<Q> {
+    /// Creates a query handler set for read delegation.
+    pub fn new(query_service: Q) -> Self {
+        Self { query_service }
+    }
 }
 
 impl<P, M, W, PR, D, I> WorkCommandHandlers<P, M, W, PR, D, I> {
@@ -411,35 +427,139 @@ where
     }
 }
 
+impl<PJ, PM, B, W, PRM, D, I, A, PROJ, AMR>
+    WorkQueryHandlers<AuthorizedWorkQueryService<PJ, PM, B, W, PRM, D, I, A, PROJ, AMR>>
+where
+    PJ: work_application::ProjectRepository,
+    PM: work_application::ProjectMemberRepository,
+    B: work_application::BacklogRepository,
+    W: work_application::WorkItemRepository,
+    PRM: work_application::PromoteRepository,
+    D: work_application::DependencyRepository,
+    I: work_application::IterationRepository,
+    A: work_application::AuditRepository,
+    PROJ: work_application::ProjectionRepository,
+    AMR: work_application::ActorMemberResolverPort,
+{
+    /// Handles `GetProjectWorkFacts`.
+    pub async fn handle_get_project_work_facts(
+        &self,
+        envelope: WorkQueryEnvelope<GetProjectWorkFactsRequest>,
+    ) -> Result<WorkQueryResponse<work_contracts::ProjectWorkFactsView>, WorkProtocolError> {
+        self.query_service
+            .get_project_work_facts(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
+
+    /// Handles `GetBacklog`.
+    pub async fn handle_get_backlog(
+        &self,
+        envelope: WorkQueryEnvelope<GetBacklogRequest>,
+    ) -> Result<WorkQueryResponse<work_contracts::views::BacklogView>, WorkProtocolError> {
+        self.query_service
+            .get_backlog(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
+
+    /// Handles `GetWorkItem`.
+    pub async fn handle_get_work_item(
+        &self,
+        envelope: WorkQueryEnvelope<GetWorkItemRequest>,
+    ) -> Result<WorkQueryResponse<work_contracts::WorkItemView>, WorkProtocolError> {
+        self.query_service
+            .get_work_item(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
+
+    /// Handles `ListMemberWork`.
+    pub async fn handle_list_member_work(
+        &self,
+        envelope: WorkQueryEnvelope<ListMemberWorkRequest>,
+    ) -> Result<WorkQueryResponse<work_contracts::views::MemberWorkView>, WorkProtocolError> {
+        self.query_service
+            .list_member_work(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
+
+    /// Handles `GetIterationSummary`.
+    pub async fn handle_get_iteration_summary(
+        &self,
+        envelope: WorkQueryEnvelope<GetIterationSummaryRequest>,
+    ) -> Result<WorkQueryResponse<work_contracts::views::IterationSummaryView>, WorkProtocolError>
+    {
+        self.query_service
+            .get_iteration_summary(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
+
+    /// Handles `SearchWork`.
+    pub async fn handle_search_work(
+        &self,
+        envelope: WorkQueryEnvelope<SearchWorkRequest>,
+    ) -> Result<WorkQueryResponse<work_contracts::views::WorkSearchResult>, WorkProtocolError> {
+        self.query_service
+            .search_work(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
+
+    /// Handles `GetWorkTrace`.
+    pub async fn handle_get_work_trace(
+        &self,
+        envelope: WorkQueryEnvelope<GetWorkTraceRequest>,
+    ) -> Result<WorkQueryResponse<work_contracts::views::WorkTraceView>, WorkProtocolError> {
+        self.query_service
+            .get_work_trace(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
+
+    /// Handles `GetProjectBoardView`.
+    pub async fn handle_get_project_board_view(
+        &self,
+        envelope: WorkQueryEnvelope<GetProjectBoardViewRequest>,
+    ) -> Result<WorkQueryResponse<work_contracts::views::ProjectBoardView>, WorkProtocolError> {
+        self.query_service
+            .get_project_board_view(envelope)
+            .await
+            .map_err(ApplicationError::into_protocol_error)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use core_contracts::metadata::Timestamp;
 
-    use super::WorkCommandHandlers;
+    use super::{WorkCommandHandlers, WorkQueryHandlers};
     use work_application::{
-        AuthorizedWorkQueryService, BacklogRepository, CommandResultRepository,
+        AuditRepository, AuthorizedWorkQueryService, BacklogRepository, CommandResultRepository,
         DependencyBlockerService, IterationCommandService, IterationRepository,
-        ProjectCommandService, ProjectMemberCommandService, PromoteCommandService, UnitOfWork,
-        WorkItemCommandService, WorkQueryVisibilityPolicy,
+        ProjectCommandService, ProjectMemberCommandService, ProjectionRepository,
+        PromoteCommandService, UnitOfWork, WorkItemCommandService, WorkQueryVisibilityPolicy,
     };
     use work_contracts::metadata::fixtures;
     use work_contracts::{
         AssignProjectMemberRequest, BacklogAvailabilityTarget, BacklogState,
         CommitIterationScopeRequest, CommitmentState, CreateChildWorkItemRequest,
         CreateProjectRequest, CreateWorkItemRequest, DependencyTarget, DerivedWorkViewRef,
-        GetBacklogRequest, GetIterationSummaryRequest, GetProjectWorkFactsRequest,
-        GetWorkItemRequest, IdempotencyResultView, IterationLifecycleTarget, IterationState,
-        LinkWorkDependencyRequest, ListMemberWorkRequest, OpenIterationRequest,
-        OpenWorkBlockerRequest, ProjectLifecycleReason, ProjectLifecycleReasonKind,
-        ProjectLifecycleState, ProjectLifecycleTarget, ProjectMemberReason,
-        ProjectMemberReasonKind, ProjectMemberResponsibilityState, PromoteResultState,
-        PromoteReviewDecision, QuerySurface, RequestWorkPromotionRequest,
+        GetBacklogRequest, GetIterationSummaryRequest, GetProjectBoardViewRequest,
+        GetProjectWorkFactsRequest, GetWorkItemRequest, GetWorkTraceRequest, IdempotencyResultView,
+        IterationLifecycleTarget, IterationState, LinkWorkDependencyRequest, ListMemberWorkRequest,
+        OpenIterationRequest, OpenWorkBlockerRequest, ProjectLifecycleReason,
+        ProjectLifecycleReasonKind, ProjectLifecycleState, ProjectLifecycleTarget,
+        ProjectMemberReason, ProjectMemberReasonKind, ProjectMemberResponsibilityState,
+        PromoteResultState, PromoteReviewDecision, QuerySurface, RequestWorkPromotionRequest,
         ResolveWorkBlockerRequest, ResponsibilityTarget, ReviewWorkPromotionRequest,
-        UpdateBacklogAvailabilityRequest, UpdateIterationCommitmentRequest,
+        SearchWorkRequest, UpdateBacklogAvailabilityRequest, UpdateIterationCommitmentRequest,
         UpdateIterationLifecycleRequest, UpdateProjectLifecycleRequest,
         UpdateProjectMemberResponsibilityRequest, UpdateWorkDependencyStateRequest,
         UpdateWorkItemLifecycleRequest, WorkCommandEnvelope, WorkItemState, WorkProtocolError,
-        WorkQueryEnvelope,
+        WorkQueryEnvelope, WorkTraceSubjectRef,
     };
     use work_infra::clock_id::{DeterministicWorkIdGenerator, FixedClock};
     use work_infra::command_result_store::InMemoryCommandResultRepository;
@@ -708,8 +828,12 @@ mod tests {
         InMemoryWorkStores,
         InMemoryWorkStores,
         InMemoryWorkStores,
+        InMemoryWorkStores,
+        InMemoryWorkStores,
         FakeActorMemberResolverPort,
     >;
+
+    type TestQueryHandlers = WorkQueryHandlers<TestQueryService>;
 
     fn build_query_service(
         stores: InMemoryWorkStores,
@@ -720,12 +844,21 @@ mod tests {
             member_repo: stores.clone(),
             backlog_repo: stores.clone(),
             work_repo: stores.clone(),
+            promote_repo: stores.clone(),
             dependency_repo: stores.clone(),
             iteration_repo: stores.clone(),
+            audit_repo: stores.clone(),
             projection_repo: stores,
             actor_member_resolver,
             visibility: WorkQueryVisibilityPolicy,
         }
+    }
+
+    fn build_query_handlers(
+        stores: InMemoryWorkStores,
+        actor_member_resolver: FakeActorMemberResolverPort,
+    ) -> TestQueryHandlers {
+        WorkQueryHandlers::new(build_query_service(stores, actor_member_resolver))
     }
 
     async fn prepare_query_context() -> (
@@ -885,6 +1018,20 @@ mod tests {
             })
             .await
             .expect("create child work should succeed")
+    }
+
+    fn query_metadata_with_page(
+        limit: u32,
+        token: Option<&str>,
+    ) -> core_contracts::metadata::QueryMetadata {
+        core_contracts::metadata::QueryMetadata {
+            request: fixtures::request_metadata(None),
+            page: Some(core_contracts::metadata::PageRequest {
+                limit,
+                page_token: token.map(fixtures::page_token),
+            }),
+            consistency: core_contracts::metadata::QueryConsistency::Eventual,
+        }
     }
 
     #[tokio::test]
@@ -1278,6 +1425,266 @@ mod tests {
             .await
             .expect("missing iteration should use surface");
         assert_eq!(missing.surface, QuerySurface::Missing);
+
+        assert_eq!(stores.trace_count(), trace_before);
+        assert_eq!(stores.stale_mark_count(), stale_before);
+        assert_eq!(outbox.count(), outbox_before);
+    }
+
+    #[tokio::test]
+    async fn tc_work_query_006_search_work_criteria_failed_and_no_write() {
+        let (service, stores, outbox, project_ref, member_ref, work_ref) =
+            prepare_query_context().await;
+        let trace_before = stores.trace_count();
+        let stale_before = stores.stale_mark_count();
+        let outbox_before = outbox.count();
+
+        stores.seed_search_rows(
+            &project_ref,
+            vec![work_contracts::views::WorkSearchProjection {
+                project_ref: project_ref.clone(),
+                work_ref: work_ref.clone(),
+                title: fixtures::work_title("Query formal work"),
+                work_state: WorkItemState::Formalized,
+                assignee_ref: Some(member_ref.clone()),
+                source_cursor: fixtures::truth_cursor(),
+            }],
+        );
+        let search_view_ref = DerivedWorkViewRef::search(
+            project_ref.clone(),
+            fixtures::work_search_criteria_digest(),
+        );
+        let uow = stores.begin().await.expect("uow should begin");
+        stores
+            .mark_failed(
+                vec![search_view_ref.clone()],
+                fixtures::truth_cursor(),
+                work_domain::ProjectionFailureReason::from_build_error(
+                    fixtures::truth_cursor(),
+                    "search projection failed".to_owned(),
+                ),
+                &uow,
+            )
+            .await
+            .expect("failed marker should persist");
+        stores.commit(uow).await.expect("uow should commit");
+
+        let failed = service
+            .search_work(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: query_metadata_with_page(25, Some("page-2")),
+                query: SearchWorkRequest {
+                    project_ref: project_ref.clone(),
+                    criteria: fixtures::work_search_criteria(),
+                },
+            })
+            .await
+            .expect("failed projection should still surface");
+        assert_eq!(failed.surface, QuerySurface::Failed);
+        let failed_data = failed.data.expect("failed projection keeps payload");
+        assert_eq!(failed_data.project_ref, project_ref.clone());
+        assert_eq!(failed_data.items.len(), 1);
+        assert_eq!(failed_data.items[0].work_ref, work_ref.clone());
+        assert_eq!(
+            failed_data.marker.view_ref,
+            DerivedWorkViewRef::search(
+                project_ref.clone(),
+                fixtures::work_search_criteria_digest()
+            )
+        );
+        assert!(failed_data.page.next_page_token.is_none());
+
+        let hidden_resolver = FakeActorMemberResolverPort::new();
+        hidden_resolver.seed(
+            &fixtures::query_actor_context(),
+            ActorMemberResolverOutcome::Rejected,
+        );
+        let hidden_handlers = build_query_handlers(stores.clone(), hidden_resolver);
+        let hidden = hidden_handlers
+            .handle_search_work(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: SearchWorkRequest {
+                    project_ref: project_ref.clone(),
+                    criteria: fixtures::work_search_criteria(),
+                },
+            })
+            .await
+            .expect("not visible remains query surface");
+        assert_eq!(hidden.surface, QuerySurface::NotVisible);
+        assert!(hidden.data.is_none());
+
+        assert_eq!(stores.trace_count(), trace_before);
+        assert_eq!(stores.stale_mark_count(), stale_before);
+        assert_eq!(outbox.count(), outbox_before);
+    }
+
+    #[tokio::test]
+    async fn tc_work_query_007_get_work_trace_page_empty_not_visible() {
+        let (service, stores, outbox, project_ref, _member_ref, _work_ref) =
+            prepare_query_context().await;
+        let trace_before = stores.trace_count();
+        let project_trace_before = stores
+            .list_trace_records(
+                WorkTraceSubjectRef::Project(project_ref.clone()),
+                core_contracts::metadata::PageRequest {
+                    limit: 10,
+                    page_token: None,
+                },
+            )
+            .await
+            .expect("trace baseline should load")
+            .items
+            .len();
+        let stale_before = stores.stale_mark_count();
+        let outbox_before = outbox.count();
+
+        let uow = stores.begin().await.expect("uow should begin");
+        stores
+            .append_trace(
+                work_domain::WorkTraceRecord {
+                    trace_id: fixtures::trace_id(),
+                    subject_ref: WorkTraceSubjectRef::Project(project_ref.clone()),
+                    trace_context_ref: fixtures::trace_context_ref(),
+                },
+                &uow,
+            )
+            .await
+            .expect("trace should persist");
+        stores.commit(uow).await.expect("uow should commit");
+
+        let visible = service
+            .get_work_trace(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: query_metadata_with_page(10, Some("page-1")),
+                query: GetWorkTraceRequest {
+                    subject_ref: WorkTraceSubjectRef::Project(project_ref.clone()),
+                },
+            })
+            .await
+            .expect("trace page should succeed");
+        assert_eq!(visible.surface, QuerySurface::Visible);
+        let trace_view = visible.data.expect("trace payload should exist");
+        assert_eq!(
+            trace_view.subject_ref,
+            WorkTraceSubjectRef::Project(project_ref.clone())
+        );
+        assert_eq!(trace_view.records.len(), project_trace_before + 1);
+        assert_eq!(
+            trace_view
+                .records
+                .last()
+                .expect("trace should exist")
+                .trace_id,
+            fixtures::trace_id()
+        );
+
+        let backlog_ref = stores
+            .get_by_project(project_ref.clone())
+            .await
+            .expect("backlog should load")
+            .expect("backlog should exist")
+            .backlog_ref();
+        let empty = service
+            .get_work_trace(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: GetWorkTraceRequest {
+                    subject_ref: WorkTraceSubjectRef::Backlog(backlog_ref),
+                },
+            })
+            .await
+            .expect("empty trace view should succeed");
+        assert_eq!(empty.surface, QuerySurface::Empty);
+
+        let hidden_resolver = FakeActorMemberResolverPort::new();
+        hidden_resolver.seed(
+            &fixtures::query_actor_context(),
+            ActorMemberResolverOutcome::Rejected,
+        );
+        let hidden_handlers = build_query_handlers(stores.clone(), hidden_resolver);
+        let hidden = hidden_handlers
+            .handle_get_work_trace(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: GetWorkTraceRequest {
+                    subject_ref: WorkTraceSubjectRef::Project(project_ref),
+                },
+            })
+            .await
+            .expect("hidden trace should remain query surface");
+        assert_eq!(hidden.surface, QuerySurface::NotVisible);
+        assert!(hidden.data.is_none());
+
+        assert_eq!(stores.trace_count(), trace_before + 1);
+        assert_eq!(stores.stale_mark_count(), stale_before);
+        assert_eq!(outbox.count(), outbox_before);
+    }
+
+    #[tokio::test]
+    async fn tc_work_query_008_get_project_board_view_board_and_rebuilding() {
+        let (service, stores, outbox, project_ref, member_ref, work_ref) =
+            prepare_query_context().await;
+        let trace_before = stores.trace_count();
+        let stale_before = stores.stale_mark_count();
+        let outbox_before = outbox.count();
+
+        stores.seed_project_board_public_view(work_contracts::views::ProjectBoardView {
+            project_ref: project_ref.clone(),
+            work_cards: vec![work_contracts::views::FormalWorkSummaryView {
+                work_ref: work_ref.clone(),
+                work_state: WorkItemState::Formalized,
+                assignee_ref: Some(member_ref),
+                completion_ref: None,
+            }],
+            marker: work_contracts::ProjectionViewMarker {
+                view_ref: DerivedWorkViewRef::project_board(project_ref.clone()),
+                source_cursor: fixtures::truth_cursor(),
+                freshness_state: work_contracts::DerivedFreshnessState::Fresh,
+            },
+        });
+        let handlers = build_query_handlers(stores.clone(), {
+            let resolver = FakeActorMemberResolverPort::new();
+            resolver.seed(
+                &fixtures::query_actor_context(),
+                ActorMemberResolverOutcome::Success(fixtures::global_member_ref()),
+            );
+            resolver
+        });
+
+        let visible = handlers
+            .handle_get_project_board_view(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: GetProjectBoardViewRequest {
+                    project_ref: project_ref.clone(),
+                },
+            })
+            .await
+            .expect("board view should succeed");
+        assert_eq!(visible.surface, QuerySurface::Visible);
+        assert_eq!(
+            visible
+                .data
+                .expect("board payload should exist")
+                .work_cards
+                .len(),
+            1
+        );
+
+        let rebuilding = service
+            .get_project_board_view(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: GetProjectBoardViewRequest {
+                    project_ref: work_contracts::ProjectRef {
+                        project_id: work_contracts::ProjectId("project-board-missing".to_owned()),
+                    },
+                },
+            })
+            .await
+            .expect("missing board should use query surface");
+        assert_eq!(rebuilding.surface, QuerySurface::Missing);
 
         assert_eq!(stores.trace_count(), trace_before);
         assert_eq!(stores.stale_mark_count(), stale_before);
