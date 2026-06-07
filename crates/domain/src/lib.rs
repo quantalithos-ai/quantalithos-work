@@ -6,6 +6,7 @@ mod errors;
 mod iteration;
 mod policies;
 mod project;
+mod projection;
 mod promote;
 
 pub use audit::{TraceHandoffMarker, WorkAuditTrail, WorkOutboxRecord, WorkTraceRecord};
@@ -24,6 +25,7 @@ pub use project::{
     Backlog, ChildWorkItem, MemberCapabilitySnapshot, Project, ProjectMember,
     ReferenceResolutionState, WorkItem,
 };
+pub use projection::{DerivedWorkViewState, ProjectionFailureReason};
 pub use promote::{PendingPromoteIntake, PromoteDecisionRecord, PromoteResult};
 
 #[cfg(test)]
@@ -611,7 +613,7 @@ mod tests {
             fixtures::formal_work_ref(),
             fixtures::formal_work_ref(),
         )
-            .expect_err("self dependency must fail");
+        .expect_err("self dependency must fail");
         assert_eq!(err, DomainError::PolicyRejected);
 
         let err = DependencyGraphPolicy::assert_can_link(
@@ -619,7 +621,7 @@ mod tests {
             fixtures::formal_work_ref(),
             fixtures::downstream_formal_work_ref(),
         )
-            .expect_err("cycle dependency must fail");
+        .expect_err("cycle dependency must fail");
         assert_eq!(err, DomainError::PolicyRejected);
 
         let mut dependency = WorkDependency::link(

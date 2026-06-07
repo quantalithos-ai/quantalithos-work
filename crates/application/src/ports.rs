@@ -1,10 +1,14 @@
 //! Repository and adapter traits consumed by Work application services.
 
 use async_trait::async_trait;
+use core_contracts::actor::ActorContext;
 use core_contracts::metadata::{PageRequest, PageToken, Timestamp, Version};
 use serde::{Deserialize, Serialize};
 
 use crate::UnitOfWorkHandle;
+use work_contracts::views::{
+    IterationSummaryView, MemberWorkView, ProjectBoardView, WorkSearchProjection,
+};
 use work_contracts::{
     BacklogRef, DependencyOrBlockerRef, DerivedWorkViewRef, ExternalEvidenceRef,
     ExternalSourceSummary, FormalWorkRef, GlobalMemberRef, IterationChangeId,
@@ -12,13 +16,14 @@ use work_contracts::{
     OutboxRetryReason, ProcessTimeboxRef, ProcessTimeboxSummary, ProjectMemberId, ProjectMemberRef,
     ProjectOwnerRef, ProjectRef, PromoteResultRef, SourceWorkRef, WorkAuditSubjectRef,
     WorkBlockerId, WorkBlockerRef, WorkDependencyId, WorkDependencyRef, WorkOutboxId,
-    WorkTruthCursor,
+    WorkSearchCriteria, WorkTraceSubjectRef, WorkTruthCursor,
 };
 use work_domain::{
-    Backlog, ChildWorkItem, DependencyChangeRecord, DependencyGraphSnapshot, Iteration,
-    IterationChangeRecord, IterationCommitment, MemberCapabilitySnapshot, PendingPromoteIntake,
-    ProjectMember, PromoteDecisionRecord, PromoteResult, TraceHandoffMarker, WorkAuditTrail,
-    WorkBlocker, WorkDependency, WorkItem, WorkOutboxRecord, WorkTraceRecord,
+    Backlog, ChildWorkItem, DependencyChangeRecord, DependencyGraphSnapshot, DerivedWorkViewState,
+    Iteration, IterationChangeRecord, IterationCommitment, MemberCapabilitySnapshot,
+    PendingPromoteIntake, ProjectMember, ProjectionFailureReason, PromoteDecisionRecord,
+    PromoteResult, TraceHandoffMarker, WorkAuditTrail, WorkBlocker, WorkDependency, WorkItem,
+    WorkOutboxRecord, WorkTraceRecord,
 };
 
 /// A repository page returned before public query mapping.
@@ -149,6 +154,42 @@ pub struct FormalWorkScope {
     pub backlog_ref: BacklogRef,
     /// Assignee whose member-work view should be marked stale when known.
     pub assignee_ref: Option<ProjectMemberRef>,
+}
+
+/// Application-local resolved identity for query visibility decisions.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QueryActorMemberRef {
+    /// Current actor from core metadata.
+    pub actor_ref: core_contracts::actor::ActorRef,
+    /// Identity member ref resolved by the query actor-member port.
+    pub member_ref: GlobalMemberRef,
+}
+
+/// Projection wrapper used before public project-board query mapping.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProjectBoardViewProjection {
+    /// Public project board view.
+    pub view: ProjectBoardView,
+    /// Derived freshness state.
+    pub freshness: DerivedWorkViewState,
+}
+
+/// Projection wrapper used before public member-work query mapping.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MemberWorkViewProjection {
+    /// Public member-work view.
+    pub view: MemberWorkView,
+    /// Derived freshness state.
+    pub freshness: DerivedWorkViewState,
+}
+
+/// Projection wrapper used before public iteration-summary query mapping.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IterationSummaryViewProjection {
+    /// Public iteration-summary view.
+    pub view: IterationSummaryView,
+    /// Derived freshness state.
+    pub freshness: DerivedWorkViewState,
 }
 
 /// Stores Work-owned project truth.
@@ -291,6 +332,13 @@ pub trait WorkItemRepository: Send + Sync {
         &self,
         work_ref: FormalWorkRef,
     ) -> Result<Option<FormalWorkScope>, RepositoryError>;
+
+    /// Lists formal work refs that currently belong to one backlog.
+    async fn list_by_backlog(
+        &self,
+        backlog_ref: BacklogRef,
+        page: PageRequest,
+    ) -> Result<Page<FormalWorkRef>, RepositoryError>;
 
     /// Creates a root work item inside the current unit of work.
     async fn create_work_item(
@@ -512,6 +560,19 @@ pub trait AuditRepository: Send + Sync {
         subject_ref: WorkAuditSubjectRef,
     ) -> Result<Option<WorkAuditTrail>, RepositoryError>;
 
+    /// Loads one trace record by id for read-only query visibility resolution.
+    async fn get_trace_record(
+        &self,
+        trace_id: work_contracts::WorkTraceId,
+    ) -> Result<Option<WorkTraceRecord>, RepositoryError>;
+
+    /// Lists trace records for one subject.
+    async fn list_trace_records(
+        &self,
+        subject_ref: WorkTraceSubjectRef,
+        page: PageRequest,
+    ) -> Result<Page<WorkTraceRecord>, RepositoryError>;
+
     /// Appends a trace record inside the current unit of work.
     async fn append_trace(
         &self,
@@ -533,6 +594,12 @@ pub trait AuditRepository: Send + Sync {
         marker: TraceHandoffMarker,
         uow: &UnitOfWorkHandle,
     ) -> Result<(), RepositoryError>;
+
+    /// Loads a trace handoff marker by handoff ref for query visibility.
+    async fn get_trace_handoff_marker(
+        &self,
+        handoff_ref: work_contracts::TraceHandoffRef,
+    ) -> Result<Option<TraceHandoffMarker>, RepositoryError>;
 }
 
 /// Stores Work outbox records and publication state.
@@ -588,6 +655,38 @@ pub trait WorkOutboxRepository: Send + Sync {
 /// Stores derived Work read views and their freshness state.
 #[async_trait]
 pub trait ProjectionRepository: Send + Sync {
+    /// Loads a project board view and freshness marker.
+    async fn get_project_board_view(
+        &self,
+        project_ref: ProjectRef,
+    ) -> Result<Option<ProjectBoardViewProjection>, RepositoryError>;
+
+    /// Loads member-work view and freshness marker.
+    async fn get_member_work_view(
+        &self,
+        member_ref: ProjectMemberRef,
+    ) -> Result<Option<MemberWorkViewProjection>, RepositoryError>;
+
+    /// Loads iteration-summary view and freshness marker.
+    async fn get_iteration_summary_view(
+        &self,
+        iteration_ref: IterationRef,
+    ) -> Result<Option<IterationSummaryViewProjection>, RepositoryError>;
+
+    /// Searches work projections for one project and criteria.
+    async fn search_work(
+        &self,
+        project_ref: ProjectRef,
+        criteria: WorkSearchCriteria,
+        page: PageRequest,
+    ) -> Result<Page<WorkSearchProjection>, RepositoryError>;
+
+    /// Loads one freshness state by stable derived view ref.
+    async fn get_freshness_state(
+        &self,
+        view_ref: DerivedWorkViewRef,
+    ) -> Result<Option<DerivedWorkViewState>, RepositoryError>;
+
     /// Marks affected derived views stale after a truth or snapshot change.
     async fn mark_stale(
         &self,
@@ -595,6 +694,33 @@ pub trait ProjectionRepository: Send + Sync {
         source_cursor: WorkTruthCursor,
         uow: &UnitOfWorkHandle,
     ) -> Result<(), RepositoryError>;
+
+    /// Marks selected derived views as rebuilding.
+    async fn mark_rebuilding(
+        &self,
+        affected: Vec<DerivedWorkViewRef>,
+        source_cursor: WorkTruthCursor,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<(), RepositoryError>;
+
+    /// Marks selected derived views as failed.
+    async fn mark_failed(
+        &self,
+        affected: Vec<DerivedWorkViewRef>,
+        source_cursor: WorkTruthCursor,
+        reason: ProjectionFailureReason,
+        uow: &UnitOfWorkHandle,
+    ) -> Result<(), RepositoryError>;
+}
+
+/// Resolves the current query actor into a safe identity member ref.
+#[async_trait]
+pub trait ActorMemberResolverPort: Send + Sync {
+    /// Resolves a trusted query actor context into the identity member ref used for visibility.
+    async fn resolve_actor_member(
+        &self,
+        actor: &ActorContext,
+    ) -> Result<QueryActorMemberRef, PortError>;
 }
 
 /// Resolves member capability summaries from the identity boundary.

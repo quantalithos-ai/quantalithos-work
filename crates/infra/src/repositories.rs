@@ -7,20 +7,26 @@ use async_trait::async_trait;
 use core_contracts::metadata::{PageRequest, Version};
 use work_application::{
     AuditRepository, BacklogRepository, DependencyRepository, FormalWorkRecord, FormalWorkScope,
-    IterationRepository, Page, PageInfo, ProjectMemberRepository, ProjectRepository,
-    ProjectionRepository, PromoteRepository, ReferenceSnapshotRepository, RepositoryError,
-    UnitOfWork, UnitOfWorkError, UnitOfWorkHandle, UnitOfWorkId, WorkItemRepository,
+    IterationRepository, IterationSummaryViewProjection, MemberWorkViewProjection, Page, PageInfo,
+    ProjectBoardViewProjection, ProjectMemberRepository, ProjectRepository, ProjectionRepository,
+    PromoteRepository, ReferenceSnapshotRepository, RepositoryError, UnitOfWork, UnitOfWorkError,
+    UnitOfWorkHandle, UnitOfWorkId, WorkItemRepository,
+};
+use work_contracts::views::{
+    IterationSummaryView, MemberWorkView, ProjectBoardView, WorkSearchProjection,
 };
 use work_contracts::{
     BacklogRef, DependencyOrBlockerRef, DerivedWorkViewRef, FormalWorkRef, GlobalMemberRef,
     IterationRef, ProjectMemberRef, ProjectOwnerRef, ProjectRef, PromoteResultRef, SourceWorkRef,
-    WorkAuditSubjectRef, WorkBlockerRef, WorkDependencyRef, WorkTruthCursor,
+    WorkAuditSubjectRef, WorkBlockerRef, WorkDependencyRef, WorkSearchCriteria, WorkTraceId,
+    WorkTraceSubjectRef, WorkTruthCursor,
 };
 use work_domain::{
-    Backlog, ChildWorkItem, DependencyChangeRecord, DependencyGraphSnapshot, Iteration,
-    IterationChangeRecord, IterationCommitment, MemberCapabilitySnapshot, PendingPromoteIntake,
-    ProjectMember, PromoteDecisionRecord, PromoteResult, TraceHandoffMarker, WorkAuditTrail,
-    WorkBlocker, WorkDependency, WorkItem, WorkTraceRecord,
+    Backlog, ChildWorkItem, DependencyChangeRecord, DependencyGraphSnapshot, DerivedWorkViewState,
+    Iteration, IterationChangeRecord, IterationCommitment, MemberCapabilitySnapshot,
+    PendingPromoteIntake, ProjectMember, ProjectionFailureReason, PromoteDecisionRecord,
+    PromoteResult, TraceHandoffMarker, WorkAuditTrail, WorkBlocker, WorkDependency, WorkItem,
+    WorkTraceRecord,
 };
 
 /// Shared in-memory fake stores for CORE command service tests.
@@ -53,7 +59,19 @@ struct Stores {
     member_snapshots: HashMap<String, (MemberCapabilitySnapshot, Version)>,
     audit_trails: HashMap<String, (WorkAuditTrail, Version)>,
     traces: Vec<WorkTraceRecord>,
+    trace_handoff_markers: HashMap<String, TraceHandoffMarker>,
+    project_board_views: HashMap<String, ProjectBoardViewProjection>,
+    member_work_views: HashMap<String, MemberWorkViewProjection>,
+    iteration_summary_views: HashMap<String, IterationSummaryViewProjection>,
+    work_search_rows: HashMap<String, Vec<WorkSearchProjection>>,
+    freshness_states: HashMap<String, DerivedWorkViewState>,
     stale_marks: Vec<(Vec<DerivedWorkViewRef>, WorkTruthCursor)>,
+    rebuilding_marks: Vec<(Vec<DerivedWorkViewRef>, WorkTruthCursor)>,
+    failed_marks: Vec<(
+        Vec<DerivedWorkViewRef>,
+        WorkTruthCursor,
+        ProjectionFailureReason,
+    )>,
 }
 
 impl InMemoryWorkStores {
@@ -83,6 +101,28 @@ impl InMemoryWorkStores {
         self.state
             .lock()
             .map(|state| state.stale_marks.clone())
+            .unwrap_or_default()
+    }
+
+    /// Returns all rebuilding marker writes in append order.
+    pub fn rebuilding_marks(&self) -> Vec<(Vec<DerivedWorkViewRef>, WorkTruthCursor)> {
+        self.state
+            .lock()
+            .map(|state| state.rebuilding_marks.clone())
+            .unwrap_or_default()
+    }
+
+    /// Returns all failed marker writes in append order.
+    pub fn failed_marks(
+        &self,
+    ) -> Vec<(
+        Vec<DerivedWorkViewRef>,
+        WorkTruthCursor,
+        ProjectionFailureReason,
+    )> {
+        self.state
+            .lock()
+            .map(|state| state.failed_marks.clone())
             .unwrap_or_default()
     }
 
@@ -239,6 +279,99 @@ impl InMemoryWorkStores {
                     project_id: backlog.project_id.clone(),
                 })
         })
+    }
+
+    /// Seeds one member-work projection.
+    pub fn seed_member_work_view(&self, projection: MemberWorkViewProjection) {
+        if let Ok(mut state) = self.state.lock() {
+            let key = projection.view.member_ref.project_member_id.0.clone();
+            state
+                .member_work_views
+                .insert(key.clone(), projection.clone());
+            state
+                .freshness_states
+                .insert(format!("member:{key}"), projection.freshness);
+        }
+    }
+
+    /// Seeds one member-work projection from a public view marker.
+    pub fn seed_member_work_public_view(&self, view: MemberWorkView) {
+        self.seed_member_work_view(MemberWorkViewProjection {
+            freshness: DerivedWorkViewState {
+                view_ref: view.marker.view_ref.clone(),
+                source_cursor: view.marker.source_cursor.clone(),
+                freshness_state: view.marker.freshness_state,
+            },
+            view,
+        });
+    }
+
+    /// Removes one member-work projection while leaving truth untouched.
+    pub fn clear_member_work_view(&self, member_ref: &ProjectMemberRef) {
+        if let Ok(mut state) = self.state.lock() {
+            state
+                .member_work_views
+                .remove(&member_ref.project_member_id.0);
+        }
+    }
+
+    /// Seeds one iteration-summary projection.
+    pub fn seed_iteration_summary_view(&self, projection: IterationSummaryViewProjection) {
+        if let Ok(mut state) = self.state.lock() {
+            let key = projection.view.iteration_ref.iteration_id.0.clone();
+            state
+                .iteration_summary_views
+                .insert(key.clone(), projection.clone());
+            state
+                .freshness_states
+                .insert(format!("iteration:{key}"), projection.freshness);
+        }
+    }
+
+    /// Seeds one iteration-summary projection from a public view marker.
+    pub fn seed_iteration_summary_public_view(&self, view: IterationSummaryView) {
+        self.seed_iteration_summary_view(IterationSummaryViewProjection {
+            freshness: DerivedWorkViewState {
+                view_ref: view.marker.view_ref.clone(),
+                source_cursor: view.marker.source_cursor.clone(),
+                freshness_state: view.marker.freshness_state,
+            },
+            view,
+        });
+    }
+
+    /// Seeds one project-board projection.
+    pub fn seed_project_board_view(&self, projection: ProjectBoardViewProjection) {
+        if let Ok(mut state) = self.state.lock() {
+            let key = projection.view.project_ref.project_id.0.clone();
+            state
+                .project_board_views
+                .insert(key.clone(), projection.clone());
+            state
+                .freshness_states
+                .insert(format!("project:{key}"), projection.freshness);
+        }
+    }
+
+    /// Seeds one project-board projection from a public view marker.
+    pub fn seed_project_board_public_view(&self, view: ProjectBoardView) {
+        self.seed_project_board_view(ProjectBoardViewProjection {
+            freshness: DerivedWorkViewState {
+                view_ref: view.marker.view_ref.clone(),
+                source_cursor: view.marker.source_cursor.clone(),
+                freshness_state: view.marker.freshness_state,
+            },
+            view,
+        });
+    }
+
+    /// Seeds search rows for one project.
+    pub fn seed_search_rows(&self, project_ref: &ProjectRef, rows: Vec<WorkSearchProjection>) {
+        if let Ok(mut state) = self.state.lock() {
+            state
+                .work_search_rows
+                .insert(project_ref.project_id.0.clone(), rows);
+        }
     }
 }
 
@@ -558,6 +691,46 @@ impl WorkItemRepository for InMemoryWorkStores {
                 }))
             }
         }
+    }
+
+    async fn list_by_backlog(
+        &self,
+        backlog_ref: BacklogRef,
+        page: PageRequest,
+    ) -> Result<Page<FormalWorkRef>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let items = state
+            .backlog_membership
+            .get(&backlog_ref.backlog_id.0)
+            .cloned()
+            .unwrap_or_default();
+
+        let start = page
+            .page_token
+            .as_ref()
+            .and_then(|token| token.as_str().parse::<usize>().ok())
+            .unwrap_or(0);
+        let limit = usize::try_from(page.limit.max(1)).unwrap_or(usize::MAX);
+        let page_items = items
+            .iter()
+            .skip(start)
+            .take(limit)
+            .cloned()
+            .collect::<Vec<_>>();
+        let next = start + page_items.len();
+        let has_more = next < items.len();
+
+        Ok(Page {
+            items: page_items,
+            page_info: PageInfo {
+                next_page_token: has_more
+                    .then(|| core_contracts::metadata::PageToken::new(next.to_string())),
+                has_more,
+            },
+        })
     }
 
     async fn create_work_item(
@@ -967,6 +1140,45 @@ impl AuditRepository for InMemoryWorkStores {
         Ok(state.audit_trails.get(&key).map(|(trail, _)| trail.clone()))
     }
 
+    async fn get_trace_record(
+        &self,
+        trace_id: WorkTraceId,
+    ) -> Result<Option<WorkTraceRecord>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(state
+            .traces
+            .iter()
+            .find(|record| record.trace_id == trace_id)
+            .cloned())
+    }
+
+    async fn list_trace_records(
+        &self,
+        subject_ref: WorkTraceSubjectRef,
+        _page: PageRequest,
+    ) -> Result<Page<WorkTraceRecord>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        let items = state
+            .traces
+            .iter()
+            .filter(|record| record.subject_ref == subject_ref)
+            .cloned()
+            .collect();
+        Ok(Page {
+            items,
+            page_info: PageInfo {
+                next_page_token: None,
+                has_more: false,
+            },
+        })
+    }
+
     async fn append_trace(
         &self,
         record: WorkTraceRecord,
@@ -1012,10 +1224,45 @@ impl AuditRepository for InMemoryWorkStores {
 
     async fn save_trace_handoff_marker(
         &self,
-        _marker: TraceHandoffMarker,
+        marker: TraceHandoffMarker,
         _uow: &UnitOfWorkHandle,
     ) -> Result<(), RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        state
+            .trace_handoff_markers
+            .insert(marker.handoff_ref.0.clone(), marker);
         Ok(())
+    }
+
+    async fn get_trace_handoff_marker(
+        &self,
+        handoff_ref: work_contracts::TraceHandoffRef,
+    ) -> Result<Option<TraceHandoffMarker>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(state.trace_handoff_markers.get(&handoff_ref.0).cloned())
+    }
+}
+
+fn freshness_key(view_ref: &DerivedWorkViewRef) -> String {
+    match &view_ref.scope_ref {
+        work_contracts::DerivedWorkViewScopeRef::Project(project_ref) => {
+            format!("project:{}", project_ref.project_id.0)
+        }
+        work_contracts::DerivedWorkViewScopeRef::ProjectMember(member_ref) => {
+            format!("member:{}", member_ref.project_member_id.0)
+        }
+        work_contracts::DerivedWorkViewScopeRef::Iteration(iteration_ref) => {
+            format!("iteration:{}", iteration_ref.iteration_id.0)
+        }
+        work_contracts::DerivedWorkViewScopeRef::Search(project_ref, digest) => {
+            format!("search:{}:{}", project_ref.project_id.0, digest.0)
+        }
     }
 }
 
@@ -1336,6 +1583,85 @@ impl IterationRepository for InMemoryWorkStores {
 
 #[async_trait]
 impl ProjectionRepository for InMemoryWorkStores {
+    async fn get_project_board_view(
+        &self,
+        project_ref: ProjectRef,
+    ) -> Result<Option<ProjectBoardViewProjection>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(state
+            .project_board_views
+            .get(&project_ref.project_id.0)
+            .cloned())
+    }
+
+    async fn get_member_work_view(
+        &self,
+        member_ref: ProjectMemberRef,
+    ) -> Result<Option<MemberWorkViewProjection>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(state
+            .member_work_views
+            .get(&member_ref.project_member_id.0)
+            .cloned())
+    }
+
+    async fn get_iteration_summary_view(
+        &self,
+        iteration_ref: IterationRef,
+    ) -> Result<Option<IterationSummaryViewProjection>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(state
+            .iteration_summary_views
+            .get(&iteration_ref.iteration_id.0)
+            .cloned())
+    }
+
+    async fn search_work(
+        &self,
+        project_ref: ProjectRef,
+        _criteria: WorkSearchCriteria,
+        _page: PageRequest,
+    ) -> Result<Page<WorkSearchProjection>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(Page {
+            items: state
+                .work_search_rows
+                .get(&project_ref.project_id.0)
+                .cloned()
+                .unwrap_or_default(),
+            page_info: PageInfo {
+                next_page_token: None,
+                has_more: false,
+            },
+        })
+    }
+
+    async fn get_freshness_state(
+        &self,
+        view_ref: DerivedWorkViewRef,
+    ) -> Result<Option<DerivedWorkViewState>, RepositoryError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        Ok(state
+            .freshness_states
+            .get(&freshness_key(&view_ref))
+            .cloned())
+    }
+
     async fn mark_stale(
         &self,
         affected: Vec<DerivedWorkViewRef>,
@@ -1346,7 +1672,60 @@ impl ProjectionRepository for InMemoryWorkStores {
             .state
             .lock()
             .map_err(|_| RepositoryError::StoreUnavailable)?;
+        for view_ref in &affected {
+            let key = freshness_key(view_ref);
+            let freshness = state
+                .freshness_states
+                .entry(key)
+                .or_insert_with(|| DerivedWorkViewState::for_view(view_ref.clone()));
+            let _ = freshness.mark_stale(source_cursor.clone());
+        }
         state.stale_marks.push((affected, source_cursor));
+        Ok(())
+    }
+
+    async fn mark_rebuilding(
+        &self,
+        affected: Vec<DerivedWorkViewRef>,
+        source_cursor: WorkTruthCursor,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<(), RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        for view_ref in &affected {
+            let key = freshness_key(view_ref);
+            let freshness = state
+                .freshness_states
+                .entry(key)
+                .or_insert_with(|| DerivedWorkViewState::for_view(view_ref.clone()));
+            let _ = freshness.mark_rebuilding(source_cursor.clone());
+        }
+        state.rebuilding_marks.push((affected, source_cursor));
+        Ok(())
+    }
+
+    async fn mark_failed(
+        &self,
+        affected: Vec<DerivedWorkViewRef>,
+        source_cursor: WorkTruthCursor,
+        reason: ProjectionFailureReason,
+        _uow: &UnitOfWorkHandle,
+    ) -> Result<(), RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RepositoryError::StoreUnavailable)?;
+        for view_ref in &affected {
+            let key = freshness_key(view_ref);
+            let freshness = state
+                .freshness_states
+                .entry(key)
+                .or_insert_with(|| DerivedWorkViewState::for_view(view_ref.clone()));
+            let _ = freshness.mark_failed(source_cursor.clone(), reason.clone());
+        }
+        state.failed_marks.push((affected, source_cursor, reason));
         Ok(())
     }
 }

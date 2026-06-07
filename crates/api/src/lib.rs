@@ -417,25 +417,29 @@ mod tests {
 
     use super::WorkCommandHandlers;
     use work_application::{
-        BacklogRepository, CommandResultRepository, DependencyBlockerService,
-        IterationCommandService, ProjectCommandService, ProjectMemberCommandService,
-        PromoteCommandService, WorkItemCommandService,
+        AuthorizedWorkQueryService, BacklogRepository, CommandResultRepository,
+        DependencyBlockerService, IterationCommandService, IterationRepository,
+        ProjectCommandService, ProjectMemberCommandService, PromoteCommandService, UnitOfWork,
+        WorkItemCommandService, WorkQueryVisibilityPolicy,
     };
     use work_contracts::metadata::fixtures;
     use work_contracts::{
         AssignProjectMemberRequest, BacklogAvailabilityTarget, BacklogState,
         CommitIterationScopeRequest, CommitmentState, CreateChildWorkItemRequest,
         CreateProjectRequest, CreateWorkItemRequest, DependencyTarget, DerivedWorkViewRef,
-        IdempotencyResultView, IterationLifecycleTarget, IterationState, LinkWorkDependencyRequest,
-        OpenIterationRequest, OpenWorkBlockerRequest, ProjectLifecycleReason,
-        ProjectLifecycleReasonKind, ProjectLifecycleState, ProjectLifecycleTarget,
-        ProjectMemberReason, ProjectMemberReasonKind, ProjectMemberResponsibilityState,
-        PromoteResultState, PromoteReviewDecision, RequestWorkPromotionRequest,
+        GetBacklogRequest, GetIterationSummaryRequest, GetProjectWorkFactsRequest,
+        GetWorkItemRequest, IdempotencyResultView, IterationLifecycleTarget, IterationState,
+        LinkWorkDependencyRequest, ListMemberWorkRequest, OpenIterationRequest,
+        OpenWorkBlockerRequest, ProjectLifecycleReason, ProjectLifecycleReasonKind,
+        ProjectLifecycleState, ProjectLifecycleTarget, ProjectMemberReason,
+        ProjectMemberReasonKind, ProjectMemberResponsibilityState, PromoteResultState,
+        PromoteReviewDecision, QuerySurface, RequestWorkPromotionRequest,
         ResolveWorkBlockerRequest, ResponsibilityTarget, ReviewWorkPromotionRequest,
         UpdateBacklogAvailabilityRequest, UpdateIterationCommitmentRequest,
         UpdateIterationLifecycleRequest, UpdateProjectLifecycleRequest,
         UpdateProjectMemberResponsibilityRequest, UpdateWorkDependencyStateRequest,
         UpdateWorkItemLifecycleRequest, WorkCommandEnvelope, WorkItemState, WorkProtocolError,
+        WorkQueryEnvelope,
     };
     use work_infra::clock_id::{DeterministicWorkIdGenerator, FixedClock};
     use work_infra::command_result_store::InMemoryCommandResultRepository;
@@ -443,9 +447,10 @@ mod tests {
     use work_infra::outbox_store::InMemoryWorkOutboxRepository;
     use work_infra::repositories::InMemoryWorkStores;
     use work_infra::source_resolvers::{
-        EvidenceResolverOutcome, FakeEvidenceResolverPort, FakeMemberReferencePort,
-        FakeProcessTimeboxResolverPort, FakeSourceWorkResolverPort, MemberResolverOutcome,
-        ProcessTimeboxResolverOutcome, SourceResolverOutcome,
+        ActorMemberResolverOutcome, EvidenceResolverOutcome, FakeActorMemberResolverPort,
+        FakeEvidenceResolverPort, FakeMemberReferencePort, FakeProcessTimeboxResolverPort,
+        FakeSourceWorkResolverPort, MemberResolverOutcome, ProcessTimeboxResolverOutcome,
+        SourceResolverOutcome,
     };
 
     type TestHandlers = WorkCommandHandlers<
@@ -695,6 +700,79 @@ mod tests {
         )
     }
 
+    type TestQueryService = AuthorizedWorkQueryService<
+        InMemoryWorkStores,
+        InMemoryWorkStores,
+        InMemoryWorkStores,
+        InMemoryWorkStores,
+        InMemoryWorkStores,
+        InMemoryWorkStores,
+        InMemoryWorkStores,
+        FakeActorMemberResolverPort,
+    >;
+
+    fn build_query_service(
+        stores: InMemoryWorkStores,
+        actor_member_resolver: FakeActorMemberResolverPort,
+    ) -> TestQueryService {
+        AuthorizedWorkQueryService {
+            project_repo: stores.clone(),
+            member_repo: stores.clone(),
+            backlog_repo: stores.clone(),
+            work_repo: stores.clone(),
+            dependency_repo: stores.clone(),
+            iteration_repo: stores.clone(),
+            projection_repo: stores,
+            actor_member_resolver,
+            visibility: WorkQueryVisibilityPolicy,
+        }
+    }
+
+    async fn prepare_query_context() -> (
+        TestQueryService,
+        InMemoryWorkStores,
+        InMemoryWorkOutboxRepository,
+        work_contracts::ProjectRef,
+        work_contracts::ProjectMemberRef,
+        work_contracts::FormalWorkRef,
+    ) {
+        let (
+            handlers,
+            stores,
+            outbox,
+            _results,
+            _idempotency,
+            member_refs,
+            source_refs,
+            _evidence_refs,
+        ) = build_handlers();
+        let (created, assigned) = prepare_formal_work_context(&handlers, &member_refs).await;
+        let work = create_root_work(
+            &handlers,
+            created.project_ref.clone(),
+            assigned.project_member_ref.clone(),
+            &source_refs,
+            "query-work-root",
+            "Query formal work",
+        )
+        .await;
+
+        let actor_resolver = FakeActorMemberResolverPort::new();
+        actor_resolver.seed(
+            &fixtures::query_actor_context(),
+            ActorMemberResolverOutcome::Success(fixtures::global_member_ref()),
+        );
+
+        (
+            build_query_service(stores.clone(), actor_resolver),
+            stores,
+            outbox,
+            created.project_ref,
+            assigned.project_member_ref,
+            work.work_ref,
+        )
+    }
+
     async fn create_project(
         handlers: &TestHandlers,
         key: &str,
@@ -807,6 +885,403 @@ mod tests {
             })
             .await
             .expect("create child work should succeed")
+    }
+
+    #[tokio::test]
+    async fn tc_work_query_001_project_work_facts_hit_missing_not_visible() {
+        let (service, stores, outbox, project_ref, _member_ref, _work_ref) =
+            prepare_query_context().await;
+        let trace_before = stores.trace_count();
+        let stale_before = stores.stale_mark_count();
+        let outbox_before = outbox.count();
+
+        let visible = service
+            .get_project_work_facts(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: GetProjectWorkFactsRequest {
+                    project_ref: project_ref.clone(),
+                },
+            })
+            .await
+            .expect("visible query should succeed");
+        assert_eq!(visible.surface, QuerySurface::Visible);
+        assert_eq!(
+            visible.data.expect("payload should exist").project_ref,
+            project_ref.clone()
+        );
+
+        let missing = service
+            .get_project_work_facts(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: GetProjectWorkFactsRequest {
+                    project_ref: work_contracts::ProjectRef {
+                        project_id: work_contracts::ProjectId("missing-project".to_owned()),
+                    },
+                },
+            })
+            .await
+            .expect("missing project should use surface");
+        assert_eq!(missing.surface, QuerySurface::Missing);
+        assert!(missing.data.is_none());
+
+        let hidden_resolver = FakeActorMemberResolverPort::new();
+        hidden_resolver.seed(
+            &fixtures::query_actor_context(),
+            ActorMemberResolverOutcome::Rejected,
+        );
+        let hidden_service = build_query_service(stores.clone(), hidden_resolver);
+        let hidden = hidden_service
+            .get_project_work_facts(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: GetProjectWorkFactsRequest { project_ref },
+            })
+            .await
+            .expect("not visible should remain query surface");
+        assert_eq!(hidden.surface, QuerySurface::NotVisible);
+        assert!(hidden.data.is_none());
+
+        assert_eq!(stores.trace_count(), trace_before);
+        assert_eq!(stores.stale_mark_count(), stale_before);
+        assert_eq!(outbox.count(), outbox_before);
+    }
+
+    #[tokio::test]
+    async fn tc_work_query_002_backlog_page_and_empty() {
+        let (service, stores, outbox, project_ref, _member_ref, _work_ref) =
+            prepare_query_context().await;
+        let trace_before = stores.trace_count();
+        let stale_before = stores.stale_mark_count();
+        let outbox_before = outbox.count();
+
+        let visible = service
+            .get_backlog(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: GetBacklogRequest {
+                    project_ref: project_ref.clone(),
+                    filter: None,
+                },
+            })
+            .await
+            .expect("backlog should be visible");
+        assert_eq!(visible.surface, QuerySurface::Visible);
+        assert_eq!(visible.data.expect("payload should exist").items.len(), 1);
+
+        let empty = service
+            .get_backlog(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: GetBacklogRequest {
+                    project_ref,
+                    filter: Some(work_contracts::BacklogQueryFilter {
+                        work_state: Some(WorkItemState::Completed),
+                        assignee_ref: None,
+                    }),
+                },
+            })
+            .await
+            .expect("filtered backlog should succeed");
+        assert_eq!(empty.surface, QuerySurface::Empty);
+        assert!(
+            empty
+                .data
+                .expect("empty response keeps payload")
+                .items
+                .is_empty()
+        );
+
+        assert_eq!(stores.trace_count(), trace_before);
+        assert_eq!(stores.stale_mark_count(), stale_before);
+        assert_eq!(outbox.count(), outbox_before);
+    }
+
+    #[tokio::test]
+    async fn tc_work_query_003_work_item_visible_and_not_visible() {
+        let (service, stores, _outbox, _project_ref, _member_ref, work_ref) =
+            prepare_query_context().await;
+
+        let visible = service
+            .get_work_item(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: GetWorkItemRequest {
+                    work_ref: work_ref.clone(),
+                },
+            })
+            .await
+            .expect("work item should be visible");
+        assert_eq!(visible.surface, QuerySurface::Visible);
+        assert_eq!(
+            visible.data.expect("payload should exist").work_ref,
+            work_ref.clone()
+        );
+
+        let hidden_resolver = FakeActorMemberResolverPort::new();
+        hidden_resolver.seed(
+            &fixtures::query_actor_context(),
+            ActorMemberResolverOutcome::Unresolved,
+        );
+        let hidden_service = build_query_service(stores, hidden_resolver);
+        let hidden = hidden_service
+            .get_work_item(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: GetWorkItemRequest { work_ref },
+            })
+            .await
+            .expect("not visible should stay in surface");
+        assert_eq!(hidden.surface, QuerySurface::NotVisible);
+        assert!(hidden.data.is_none());
+    }
+
+    #[tokio::test]
+    async fn tc_work_query_004_member_work_projection_surfaces() {
+        let (service, stores, outbox, _project_ref, member_ref, work_ref) =
+            prepare_query_context().await;
+        let trace_before = stores.trace_count();
+        let stale_before = stores.stale_mark_count();
+        let outbox_before = outbox.count();
+
+        stores.seed_member_work_public_view(work_contracts::views::MemberWorkView {
+            member_ref: member_ref.clone(),
+            assigned_work: vec![work_contracts::views::FormalWorkSummaryView {
+                work_ref,
+                work_state: WorkItemState::Formalized,
+                assignee_ref: Some(member_ref.clone()),
+                completion_ref: None,
+            }],
+            marker: work_contracts::ProjectionViewMarker {
+                view_ref: work_contracts::DerivedWorkViewRef::member_work(member_ref.clone()),
+                source_cursor: fixtures::truth_cursor(),
+                freshness_state: work_contracts::DerivedFreshnessState::Stale,
+            },
+            page: work_contracts::PublicPageInfo {
+                next_page_token: None,
+                has_more: false,
+            },
+        });
+
+        let stale = service
+            .list_member_work(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: ListMemberWorkRequest {
+                    project_member_ref: member_ref.clone(),
+                    work_state: None,
+                },
+            })
+            .await
+            .expect("stale projection should succeed");
+        assert_eq!(stale.surface, QuerySurface::Stale);
+
+        stores.seed_member_work_public_view(work_contracts::views::MemberWorkView {
+            member_ref: member_ref.clone(),
+            assigned_work: Vec::new(),
+            marker: work_contracts::ProjectionViewMarker {
+                view_ref: work_contracts::DerivedWorkViewRef::member_work(member_ref.clone()),
+                source_cursor: fixtures::truth_cursor(),
+                freshness_state: work_contracts::DerivedFreshnessState::Failed,
+            },
+            page: work_contracts::PublicPageInfo {
+                next_page_token: None,
+                has_more: false,
+            },
+        });
+        let failed = service
+            .list_member_work(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: ListMemberWorkRequest {
+                    project_member_ref: member_ref.clone(),
+                    work_state: None,
+                },
+            })
+            .await
+            .expect("failed projection should succeed");
+        assert_eq!(failed.surface, QuerySurface::Failed);
+
+        stores.clear_member_work_view(&member_ref);
+        let rebuilding = service
+            .list_member_work(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: ListMemberWorkRequest {
+                    project_member_ref: member_ref.clone(),
+                    work_state: None,
+                },
+            })
+            .await
+            .expect("missing projection should map to rebuilding");
+        assert_eq!(rebuilding.surface, QuerySurface::Rebuilding);
+        assert!(rebuilding.data.is_none());
+
+        stores.seed_member_work_public_view(work_contracts::views::MemberWorkView {
+            member_ref: member_ref.clone(),
+            assigned_work: Vec::new(),
+            marker: work_contracts::ProjectionViewMarker {
+                view_ref: work_contracts::DerivedWorkViewRef::member_work(member_ref.clone()),
+                source_cursor: fixtures::truth_cursor(),
+                freshness_state: work_contracts::DerivedFreshnessState::Fresh,
+            },
+            page: work_contracts::PublicPageInfo {
+                next_page_token: None,
+                has_more: false,
+            },
+        });
+        let visible = service
+            .list_member_work(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: ListMemberWorkRequest {
+                    project_member_ref: member_ref,
+                    work_state: Some(WorkItemState::Completed),
+                },
+            })
+            .await
+            .expect("filter should preserve projection and return empty page");
+        assert_eq!(visible.surface, QuerySurface::Visible);
+        assert!(
+            visible
+                .data
+                .expect("fresh response should keep payload")
+                .assigned_work
+                .is_empty()
+        );
+
+        assert_eq!(stores.trace_count(), trace_before);
+        assert_eq!(stores.stale_mark_count(), stale_before);
+        assert_eq!(outbox.count(), outbox_before);
+    }
+
+    #[tokio::test]
+    async fn tc_work_query_005_iteration_summary_projection_surface() {
+        let (service, stores, outbox, project_ref, _member_ref, _work_ref) =
+            prepare_query_context().await;
+        let trace_before = stores.trace_count();
+        let stale_before = stores.stale_mark_count();
+        let outbox_before = outbox.count();
+
+        let iteration_ref = work_contracts::IterationRef {
+            iteration_id: work_contracts::IterationId("query-iteration-1".to_owned()),
+        };
+        let uow = stores.begin().await.expect("uow should begin");
+        stores
+            .create_iteration(
+                work_domain::Iteration::open(
+                    iteration_ref.iteration_id.clone(),
+                    project_ref.project_id.clone(),
+                    fixtures::process_timebox_ref(),
+                    fixtures::actor_context().actor,
+                )
+                .expect("iteration should open"),
+                &uow,
+            )
+            .await
+            .expect("iteration should persist");
+        stores.commit(uow).await.expect("uow should commit");
+        stores.seed_iteration_summary_public_view(work_contracts::views::IterationSummaryView {
+            iteration_ref: iteration_ref.clone(),
+            iteration_state: work_contracts::IterationState::Planning,
+            commitment_state: None,
+            committed_work: Vec::new(),
+            marker: work_contracts::ProjectionViewMarker {
+                view_ref: work_contracts::DerivedWorkViewRef::iteration_summary(
+                    iteration_ref.clone(),
+                ),
+                source_cursor: fixtures::truth_cursor(),
+                freshness_state: work_contracts::DerivedFreshnessState::Stale,
+            },
+        });
+
+        let stale = service
+            .get_iteration_summary(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: GetIterationSummaryRequest {
+                    iteration_ref: iteration_ref.clone(),
+                },
+            })
+            .await
+            .expect("stale summary should succeed");
+        assert_eq!(stale.surface, QuerySurface::Stale);
+
+        stores.seed_iteration_summary_public_view(work_contracts::views::IterationSummaryView {
+            iteration_ref: iteration_ref.clone(),
+            iteration_state: work_contracts::IterationState::Planning,
+            commitment_state: None,
+            committed_work: Vec::new(),
+            marker: work_contracts::ProjectionViewMarker {
+                view_ref: work_contracts::DerivedWorkViewRef::iteration_summary(
+                    iteration_ref.clone(),
+                ),
+                source_cursor: fixtures::truth_cursor(),
+                freshness_state: work_contracts::DerivedFreshnessState::Fresh,
+            },
+        });
+
+        let visible = service
+            .get_iteration_summary(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: GetIterationSummaryRequest {
+                    iteration_ref: iteration_ref.clone(),
+                },
+            })
+            .await
+            .expect("fresh summary should succeed");
+        assert_eq!(visible.surface, QuerySurface::Visible);
+
+        let missing_projection_ref = work_contracts::IterationRef {
+            iteration_id: work_contracts::IterationId("query-iteration-2".to_owned()),
+        };
+        let uow = stores.begin().await.expect("uow should begin");
+        stores
+            .create_iteration(
+                work_domain::Iteration::open(
+                    missing_projection_ref.iteration_id.clone(),
+                    project_ref.project_id.clone(),
+                    fixtures::process_timebox_ref(),
+                    fixtures::actor_context().actor,
+                )
+                .expect("iteration should open"),
+                &uow,
+            )
+            .await
+            .expect("iteration should persist");
+        stores.commit(uow).await.expect("uow should commit");
+
+        let missing_projection = service
+            .get_iteration_summary(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: GetIterationSummaryRequest {
+                    iteration_ref: missing_projection_ref,
+                },
+            })
+            .await
+            .expect("missing projection should use surface");
+        assert_eq!(missing_projection.surface, QuerySurface::Missing);
+
+        let missing = service
+            .get_iteration_summary(WorkQueryEnvelope {
+                actor: fixtures::query_actor_context(),
+                metadata: fixtures::query_metadata(),
+                query: GetIterationSummaryRequest {
+                    iteration_ref: work_contracts::IterationRef {
+                        iteration_id: work_contracts::IterationId("missing-iteration".to_owned()),
+                    },
+                },
+            })
+            .await
+            .expect("missing iteration should use surface");
+        assert_eq!(missing.surface, QuerySurface::Missing);
+
+        assert_eq!(stores.trace_count(), trace_before);
+        assert_eq!(stores.stale_mark_count(), stale_before);
+        assert_eq!(outbox.count(), outbox_before);
     }
 
     #[tokio::test]

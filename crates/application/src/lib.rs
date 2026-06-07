@@ -8,6 +8,7 @@ mod member;
 mod ports;
 mod project;
 mod promote;
+mod query;
 mod results;
 mod unit_of_work;
 mod workitem;
@@ -21,16 +22,18 @@ pub use idempotency::{
 pub use iteration::IterationCommandService;
 pub use member::ProjectMemberCommandService;
 pub use ports::{
-    AuditRepository, BacklogRepository, ClockPort, DependencyRepository, EvidenceResolution,
-    EvidenceResolverPort, FormalWorkRecord, FormalWorkScope, IdGeneratorPort, IterationRepository,
-    MemberCapabilitySnapshotInput, MemberReferencePort, Page, PageInfo, PortError,
-    ProcessTimeboxResolution, ProcessTimeboxResolverPort, ProjectMemberRepository,
-    ProjectRepository, ProjectionRepository, PromoteRepository, ReferenceSnapshotRepository,
-    RepositoryError, SourceWorkResolution, SourceWorkResolverPort, WorkItemRepository,
-    WorkOutboxRepository,
+    ActorMemberResolverPort, AuditRepository, BacklogRepository, ClockPort, DependencyRepository,
+    EvidenceResolution, EvidenceResolverPort, FormalWorkRecord, FormalWorkScope, IdGeneratorPort,
+    IterationRepository, IterationSummaryViewProjection, MemberCapabilitySnapshotInput,
+    MemberReferencePort, MemberWorkViewProjection, Page, PageInfo, PortError,
+    ProcessTimeboxResolution, ProcessTimeboxResolverPort, ProjectBoardViewProjection,
+    ProjectMemberRepository, ProjectRepository, ProjectionRepository, PromoteRepository,
+    QueryActorMemberRef, ReferenceSnapshotRepository, RepositoryError, SourceWorkResolution,
+    SourceWorkResolverPort, WorkItemRepository, WorkOutboxRepository,
 };
 pub use project::ProjectCommandService;
 pub use promote::PromoteCommandService;
+pub use query::{AuthorizedWorkQueryService, WorkQueryVisibilityPolicy};
 pub use results::{CommandResultRepository, StoredCommandResult};
 pub use unit_of_work::{UnitOfWork, UnitOfWorkError, UnitOfWorkHandle, UnitOfWorkId};
 pub use work_domain::PendingPromoteIntake;

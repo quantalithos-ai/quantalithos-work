@@ -30,7 +30,7 @@ pub use queries::{
     ProjectBoardView, ProjectMemberSummaryView, ProjectWorkFactsView, ProjectionViewMarker,
     PublicPageInfo, QuerySurface, SearchWorkRequest, WorkItemView, WorkQueryEnvelope,
     WorkQueryResponse, WorkRelationStateView, WorkRelationSummaryView, WorkSearchCriteria,
-    WorkSearchResult, WorkTraceRecordView, WorkTraceView,
+    WorkSearchProjection, WorkSearchResult, WorkTraceRecordView, WorkTraceView,
 };
 pub use refs::{
     ArchiveHandoffRef, BacklogId, BacklogMaintenanceReason, BacklogMaintenanceReasonKind,

@@ -4,10 +4,11 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use core_contracts::actor::ActorContext;
 use work_application::{
-    EvidenceResolution, EvidenceResolverPort, MemberCapabilitySnapshotInput, MemberReferencePort,
-    PortError, ProcessTimeboxResolution, ProcessTimeboxResolverPort, SourceWorkResolution,
-    SourceWorkResolverPort,
+    ActorMemberResolverPort, EvidenceResolution, EvidenceResolverPort,
+    MemberCapabilitySnapshotInput, MemberReferencePort, PortError, ProcessTimeboxResolution,
+    ProcessTimeboxResolverPort, QueryActorMemberRef, SourceWorkResolution, SourceWorkResolverPort,
 };
 use work_contracts::{
     CapabilityRefSet, EvidenceVerifiedState, ExternalEvidenceRef, ExternalSourceRef,
@@ -15,6 +16,70 @@ use work_contracts::{
     ProcessTimeboxSummary, ProjectRef, SafeSummaryText, SourceDigest, SourceWorkRef,
 };
 use work_domain::ReferenceResolutionState;
+
+/// Deterministic fake query actor-member resolver keyed by `ActorRef.actor_id`.
+#[derive(Clone, Default)]
+pub struct FakeActorMemberResolverPort {
+    outcomes: Arc<Mutex<HashMap<String, ActorMemberResolverOutcome>>>,
+}
+
+/// Configured fake outcome for one actor-member resolver call.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ActorMemberResolverOutcome {
+    /// Resolver returns a safe query actor-member mapping.
+    Success(GlobalMemberRef),
+    /// Actor could not be resolved to a member.
+    Unresolved,
+    /// External dependency is temporarily unavailable.
+    Unavailable,
+    /// External boundary rejects this actor.
+    Rejected,
+    /// External boundary returned invalid payload.
+    Invalid,
+}
+
+impl FakeActorMemberResolverPort {
+    /// Creates an empty fake resolver.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Seeds one actor id outcome.
+    pub fn seed_actor_id(&self, actor_id: impl Into<String>, outcome: ActorMemberResolverOutcome) {
+        if let Ok(mut outcomes) = self.outcomes.lock() {
+            outcomes.insert(actor_id.into(), outcome);
+        }
+    }
+
+    /// Seeds one actor context outcome by its effective actor id.
+    pub fn seed(&self, actor: &ActorContext, outcome: ActorMemberResolverOutcome) {
+        self.seed_actor_id(actor.actor.actor_id.as_str().to_owned(), outcome);
+    }
+}
+
+#[async_trait]
+impl ActorMemberResolverPort for FakeActorMemberResolverPort {
+    async fn resolve_actor_member(
+        &self,
+        actor: &ActorContext,
+    ) -> Result<QueryActorMemberRef, PortError> {
+        let outcomes = self.outcomes.lock().map_err(|_| PortError::Unavailable)?;
+        match outcomes
+            .get(actor.actor.actor_id.as_str())
+            .cloned()
+            .unwrap_or(ActorMemberResolverOutcome::Unresolved)
+        {
+            ActorMemberResolverOutcome::Success(member_ref) => Ok(QueryActorMemberRef {
+                actor_ref: actor.actor.clone(),
+                member_ref,
+            }),
+            ActorMemberResolverOutcome::Unresolved => Err(PortError::NotFound),
+            ActorMemberResolverOutcome::Unavailable => Err(PortError::Unavailable),
+            ActorMemberResolverOutcome::Rejected => Err(PortError::Rejected),
+            ActorMemberResolverOutcome::Invalid => Err(PortError::InvalidResponse),
+        }
+    }
+}
 
 /// Deterministic fake member resolver keyed by `GlobalMemberRef`.
 #[derive(Clone, Default)]

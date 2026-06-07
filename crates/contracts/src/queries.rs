@@ -300,6 +300,23 @@ pub struct WorkSearchResult {
     pub page: PublicPageInfo,
 }
 
+/// Internal search projection row returned by the projection store.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct WorkSearchProjection {
+    /// Project searched.
+    pub project_ref: ProjectRef,
+    /// Formal work represented by this row.
+    pub work_ref: FormalWorkRef,
+    /// Searchable title.
+    pub title: crate::refs::WorkTitle,
+    /// Current work state.
+    pub work_state: WorkItemState,
+    /// Current assignee when available.
+    pub assignee_ref: Option<ProjectMemberRef>,
+    /// Source cursor that produced this row.
+    pub source_cursor: crate::refs::WorkTruthCursor,
+}
+
 /// Trace view for one Work subject.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct WorkTraceView {

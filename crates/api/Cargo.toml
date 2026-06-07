@@ -15,3 +15,4 @@ work-infra = { path = "../infra" }
 
 [dev-dependencies]
 tokio.workspace = true
+work-domain = { path = "../domain" }
