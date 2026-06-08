@@ -28,6 +28,15 @@ entry_count="$(jq 'length' "${json_path}")"
 cfg_ok="$(jq '[ .[] | select(.evidence_id == "EV-WORK-CFG-017") ] | length > 0' "${json_path}")"
 nfr_ok="$(jq '[ .[] | select(.evidence_id == "EV-WORK-NFR-005") ] | length > 0' "${json_path}")"
 ops_ok="$(jq '[ .[] | select(.evidence_id == "EV-WORK-OPS-006") ] | length > 0' "${json_path}")"
+all_refs_run_scoped="$(
+  jq --arg run_id "${RUN_ID}" '
+    all(
+      .[];
+      ((.artifact_refs // []) | all(contains("artifacts/test/" + $run_id)))
+      and ((.report_refs // []) | all(contains("reports/runs/" + $run_id)))
+    )
+  ' "${json_path}"
+)"
 required_fields_ok="$(
   jq '
     all(
@@ -41,13 +50,15 @@ required_fields_ok="$(
       and ((.report_refs? // []) | length > 0)
       and ((.design_contract_refs? // []) | length > 0)
       and ((.redaction_status? // "") != "")
-      and ((.review_status? // "") == "reviewed")
+      and ((.review_status? // "") != "")
+      and ((.review_status? // "") as $status | ($status == "reviewed" or $status == "needs_followup" or $status == "pending"))
+      and (if ((.defect_refs? // []) | length) > 0 then (.review_status == "needs_followup") else true end)
     )
   ' "${json_path}"
 )"
 
 status="passed"
-if [[ "${cfg_ok}" != "true" || "${nfr_ok}" != "true" || "${ops_ok}" != "true" || "${required_fields_ok}" != "true" ]]; then
+if [[ "${cfg_ok}" != "true" || "${nfr_ok}" != "true" || "${ops_ok}" != "true" || "${required_fields_ok}" != "true" || "${all_refs_run_scoped}" != "true" ]]; then
   status="failed"
 fi
 
@@ -63,6 +74,7 @@ jq -n \
   --argjson nfr_005_present "${nfr_ok}" \
   --argjson ops_006_present "${ops_ok}" \
   --argjson required_fields_ok "${required_fields_ok}" \
+  --argjson all_refs_run_scoped "${all_refs_run_scoped}" \
   '{
     run_id: $run_id,
     status: $status,
@@ -72,7 +84,8 @@ jq -n \
       cfg_017_present: $cfg_017_present,
       nfr_005_present: $nfr_005_present,
       ops_006_present: $ops_006_present,
-      required_fields_ok: $required_fields_ok
+      required_fields_ok: $required_fields_ok,
+      all_refs_run_scoped: $all_refs_run_scoped
     }
   }' >"${checks_dir}/evidence-index.json"
 

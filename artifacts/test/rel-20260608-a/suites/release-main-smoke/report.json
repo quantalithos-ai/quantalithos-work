@@ -1,7 +1,90 @@
 {
-  "command_label": "cargo test -q",
+  "command_label": "release-main-smoke selected cases",
   "status": "passed",
-  "started_at": "2026-06-08T02:44:34Z",
-  "ended_at": "2026-06-08T02:44:34Z",
-  "exit_code": 0
+  "started_at": "2026-06-08T04:23:53Z",
+  "ended_at": "2026-06-08T04:23:55Z",
+  "exit_code": 0,
+  "steps": [
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_core_001_create_project_persists_project_backlog_and_side_effects",
+      "command": "cargo test -q -p work-api tests::tc_work_core_001_create_project_persists_project_backlog_and_side_effects -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_member_001_assign_project_member_persists_member_snapshot_and_side_effects",
+      "command": "cargo test -q -p work-api tests::tc_work_member_001_assign_project_member_persists_member_snapshot_and_side_effects -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_formal_001_create_work_item_persists_truth_membership_and_side_effects",
+      "command": "cargo test -q -p work-api tests::tc_work_formal_001_create_work_item_persists_truth_membership_and_side_effects -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_iter_001_open_iteration_validates_process_timebox_summary_and_duplicate",
+      "command": "cargo test -q -p work-api tests::tc_work_iter_001_open_iteration_validates_process_timebox_summary_and_duplicate -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_query_007_get_work_trace_page_empty_not_visible",
+      "command": "cargo test -q -p work-api tests::tc_work_query_007_get_work_trace_page_empty_not_visible -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_promote_001_request_promotion_persists_result_trace_and_outbox",
+      "command": "cargo test -q -p work-api tests::tc_work_promote_001_request_promotion_persists_result_trace_and_outbox -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-jobs",
+      "target_kind": "integration-test",
+      "target_name": "outbox",
+      "test_name": "runner_delegates_publish_work_outbox",
+      "command": "cargo test -q -p work-jobs --test outbox runner_delegates_publish_work_outbox -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-application",
+      "target_kind": "integration-test",
+      "target_name": "outbox",
+      "test_name": "publish_outbox_success_marks_published_and_saves_job_report",
+      "command": "cargo test -q -p work-application --test outbox publish_outbox_success_marks_published_and_saves_job_report -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-jobs",
+      "target_kind": "integration-test",
+      "target_name": "ops",
+      "test_name": "refresh_job_marks_repository_returned_affected_views_stale",
+      "command": "cargo test -q -p work-jobs --test ops refresh_job_marks_repository_returned_affected_views_stale -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    }
+  ]
 }

@@ -19,24 +19,51 @@ parse_common_args "$@"
 [[ -n "${REPORT_ROOT}" ]] || usage_arg_missing "--report-root"
 
 ARTIFACT_ROOT="${ARTIFACT_ROOT:-$(default_artifact_root "${RUN_ID}")}"
+GATE_RESULTS_JSON="${REPORT_ROOT}/gate-results.json"
+REDaction_JSON="${ARTIFACT_ROOT}/redaction-scan/report.json"
+
 ensure_dir "${REPORT_ROOT}"
 ensure_dir "${REPORT_ROOT}/evidence"
 ensure_dir "${ARTIFACT_ROOT}"
+
+[[ -f "${GATE_RESULTS_JSON}" ]] || die "missing gate results json: ${GATE_RESULTS_JSON}"
+[[ -f "${REDaction_JSON}" ]] || die "missing redaction artifact: ${REDaction_JSON}"
+
+redaction_status="$(jq -r '.status' "${REDaction_JSON}")"
 
 evidence_json="$(
   jq \
     --arg run_id "${RUN_ID}" \
     --arg artifact_root "$(artifact_rel "${ARTIFACT_ROOT}")" \
     --arg report_root "$(artifact_rel "${REPORT_ROOT}")" \
+    --arg redaction_status "${redaction_status}" \
+    --slurpfile gate_results "${GATE_RESULTS_JSON}" \
     '
+    def suite_result($suite):
+      ($gate_results[0].suites // [])
+      | map(select(.suite == $suite))
+      | .[0];
+    def evidence_status($suite):
+      (suite_result($suite).status // "failed");
+    def review_status($suite):
+      if evidence_status($suite) == "passed" then "reviewed" else "needs_followup" end;
+    def defect_refs($suite):
+      if evidence_status($suite) == "passed" then [] else (suite_result($suite).defect_refs // []) end;
     map(
       . + {
         run_id: $run_id,
         artifact_refs: ["\($artifact_root)/suites/\(.suite)/report.json"],
-        report_refs: ["\($report_root)/\(.suite).md", "\($report_root)/gate-results.md"]
+        report_refs: ["\($report_root)/\(.suite).md", "\($report_root)/gate-results.md"],
+        redaction_status:
+          (if (.suite == "release-evidence-pack" or .suite == "release-config-redline" or .suite == "config-redaction")
+           then $redaction_status
+           else "not_applicable"
+           end),
+        defect_refs: defect_refs(.suite),
+        review_status: review_status(.suite)
       }
     )
-    ' <<<"${P0_EVIDENCE_JSON}"
+    ' <<<"${P0_EVIDENCE_CATALOG_JSON}"
 )"
 
 printf '%s\n' "${evidence_json}" >"${REPORT_ROOT}/evidence-index.json"
@@ -60,6 +87,7 @@ normalize_text_file_eof "${ARTIFACT_ROOT}/evidence-index.json"
     "- report_refs: `" + (.report_refs | join(", ")) + "`\n" +
     "- design_contract_refs: `" + (.design_contract_refs | join(", ")) + "`\n" +
     "- redaction_status: `\(.redaction_status)`\n" +
+    "- defect_refs: `" + ((.defect_refs // []) | join(", ")) + "`\n" +
     "- review_status: `\(.review_status)`\n"
   ' <<<"${evidence_json}"
 } >"${REPORT_ROOT}/evidence-index.md"
@@ -77,6 +105,7 @@ while IFS= read -r evidence_id; do
     + "- report_refs: `" + (.report_refs | join(", ")) + "`\n"
     + "- design_contract_refs: `" + (.design_contract_refs | join(", ")) + "`\n"
     + "- redaction_status: `\(.redaction_status)`\n"
+    + "- defect_refs: `" + ((.defect_refs // []) | join(", ")) + "`\n"
     + "- review_status: `\(.review_status)`\n"
   ' <<<"${evidence_json}" >"${REPORT_ROOT}/evidence/${evidence_id}.md"
   normalize_text_file_eof "${REPORT_ROOT}/evidence/${evidence_id}.md"

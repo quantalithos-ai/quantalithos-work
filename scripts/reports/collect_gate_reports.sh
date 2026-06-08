@@ -23,10 +23,36 @@ ensure_dir "${REPORT_ROOT}/suites"
 
 gate_results_json='[]'
 
+suite_blocking_class() {
+  local suite="$1"
+  case "${suite}" in
+    release-main-smoke|release-config-redline|release-evidence-pack)
+      echo "release-gate"
+      ;;
+    service-all|integration-p0|worker-job-contract|consumer-outbox|config-redaction|operations-replay|integration-like-seam)
+      echo "selected-gate"
+      ;;
+    *)
+      echo "supporting"
+      ;;
+  esac
+}
+
 while IFS= read -r report_json; do
   suite="$(basename "$(dirname "${report_json}")")"
   status="$(jq -r '.status' "${report_json}")"
   exit_code="$(jq -r '.exit_code' "${report_json}")"
+  blocking_class="$(suite_blocking_class "${suite}")"
+  if [[ "${status}" == "passed" ]]; then
+    defect_refs='[]'
+  else
+    defect_refs="$(
+      jq -cn \
+        --arg suite "${suite}" \
+        --arg run_id "${RUN_ID}" \
+        '["DEFECT-" + ($suite | ascii_upcase | gsub("[^A-Z0-9]+"; "-")) + "-" + $run_id]'
+    )"
+  fi
   failure_rel="$(artifact_rel "$(dirname "${report_json}")/failure-reason.json")"
   suite_report="$(suite_report_path "${REPORT_ROOT}" "${suite}")"
   suite_root_report="${REPORT_ROOT}/${suite}.md"
@@ -50,17 +76,21 @@ while IFS= read -r report_json; do
     jq -c \
       --arg suite "${suite}" \
       --arg status "${status}" \
+      --arg blocking_class "${blocking_class}" \
       --arg reason "$(jq -r '.reason' "$(dirname "${report_json}")/failure-reason.json")" \
       --arg report_ref "$(artifact_rel "${suite_root_report}")" \
       --arg artifact_ref "$(artifact_rel "${report_json}")" \
       --argjson exit_code "${exit_code}" \
+      --argjson defect_refs "${defect_refs}" \
       '. + [{
         suite: $suite,
         status: $status,
+        blocking_class: $blocking_class,
         reason: $reason,
         report_ref: $report_ref,
         artifact_ref: $artifact_ref,
-        exit_code: $exit_code
+        exit_code: $exit_code,
+        defect_refs: $defect_refs
       }]' <<<"${gate_results_json}"
   )"
 done < <(find "${ARTIFACT_ROOT}/suites" -mindepth 2 -maxdepth 2 -name report.json | sort)
@@ -71,9 +101,9 @@ gate_results_md="${REPORT_ROOT}/gate-results.md"
   echo
   echo "- run_id: \`${RUN_ID}\`"
   echo
-  echo "| suite | status | exit_code | reason | report_ref | artifact_ref |"
-  echo "|---|---|---:|---|---|---|"
-  jq -r '.[] | "| \(.suite) | \(.status) | \(.exit_code) | \(.reason) | `\(.report_ref)` | `\(.artifact_ref)` |"' <<<"${gate_results_json}"
+  echo "| suite | blocking_class | status | exit_code | reason | defect_refs | report_ref | artifact_ref |"
+  echo "|---|---|---|---:|---|---|---|---|"
+  jq -r '.[] | "| \(.suite) | \(.blocking_class) | \(.status) | \(.exit_code) | \(.reason) | `" + (.defect_refs | join(", ")) + "` | `\(.report_ref)` | `\(.artifact_ref)` |"' <<<"${gate_results_json}"
 } >"${gate_results_md}"
 
 jq -n \

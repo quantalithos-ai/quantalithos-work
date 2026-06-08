@@ -1,0 +1,47 @@
+test=tests::tc_work_query_001_project_work_facts_hit_missing_not_visible command=cargo test -q -p work-api tests::tc_work_query_001_project_work_facts_hit_missing_not_visible -- --exact
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.00s
+
+test=tests::tc_work_query_002_backlog_page_and_empty command=cargo test -q -p work-api tests::tc_work_query_002_backlog_page_and_empty -- --exact
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.00s
+
+test=tests::tc_work_query_003_work_item_visible_and_not_visible command=cargo test -q -p work-api tests::tc_work_query_003_work_item_visible_and_not_visible -- --exact
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.00s
+
+test=tests::tc_work_query_004_member_work_projection_surfaces command=cargo test -q -p work-api tests::tc_work_query_004_member_work_projection_surfaces -- --exact
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.00s
+
+test=tests::tc_work_query_005_iteration_summary_projection_surface command=cargo test -q -p work-api tests::tc_work_query_005_iteration_summary_projection_surface -- --exact
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.00s
+
+test=tests::tc_work_query_006_search_work_criteria_failed_and_no_write command=cargo test -q -p work-api tests::tc_work_query_006_search_work_criteria_failed_and_no_write -- --exact
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.00s
+
+test=tests::tc_work_query_007_get_work_trace_page_empty_not_visible command=cargo test -q -p work-api tests::tc_work_query_007_get_work_trace_page_empty_not_visible -- --exact
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.00s
+
+test=tests::tc_work_query_008_get_project_board_view_board_and_rebuilding command=cargo test -q -p work-api tests::tc_work_query_008_get_project_board_view_board_and_rebuilding -- --exact
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.00s

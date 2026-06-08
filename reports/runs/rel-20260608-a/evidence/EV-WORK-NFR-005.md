@@ -8,4 +8,5 @@
 - report_refs: `reports/runs/rel-20260608-a/release-evidence-pack.md, reports/runs/rel-20260608-a/gate-results.md`
 - design_contract_refs: `projects/L1-work/03-详细设计.md §11~§15`
 - redaction_status: `passed`
+- defect_refs: ``
 - review_status: `reviewed`

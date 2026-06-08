@@ -1,0 +1,243 @@
+{
+  "command_label": "service-all selected release cases",
+  "status": "passed",
+  "started_at": "2026-06-08T04:24:10Z",
+  "ended_at": "2026-06-08T04:24:11Z",
+  "exit_code": 0,
+  "steps": [
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_core_001_create_project_persists_project_backlog_and_side_effects",
+      "command": "cargo test -q -p work-api tests::tc_work_core_001_create_project_persists_project_backlog_and_side_effects -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_core_002_missing_project_write_does_not_implicitly_create_truth",
+      "command": "cargo test -q -p work-api tests::tc_work_core_002_missing_project_write_does_not_implicitly_create_truth -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_core_003_update_project_lifecycle_archives_backlog",
+      "command": "cargo test -q -p work-api tests::tc_work_core_003_update_project_lifecycle_archives_backlog -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_core_004_create_project_duplicate_replays_stored_result",
+      "command": "cargo test -q -p work-api tests::tc_work_core_004_create_project_duplicate_replays_stored_result -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_member_001_assign_project_member_persists_member_snapshot_and_side_effects",
+      "command": "cargo test -q -p work-api tests::tc_work_member_001_assign_project_member_persists_member_snapshot_and_side_effects -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_member_002_identity_resolver_unresolved_or_unavailable_does_not_save_truth",
+      "command": "cargo test -q -p work-api tests::tc_work_member_002_identity_resolver_unresolved_or_unavailable_does_not_save_truth -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_member_003_body_leak_rejects_identity_truth_takeover",
+      "command": "cargo test -q -p work-api tests::tc_work_member_003_body_leak_rejects_identity_truth_takeover -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_member_004_released_member_cannot_return_to_active",
+      "command": "cargo test -q -p work-api tests::tc_work_member_004_released_member_cannot_return_to_active -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_formal_001_create_work_item_persists_truth_membership_and_side_effects",
+      "command": "cargo test -q -p work-api tests::tc_work_formal_001_create_work_item_persists_truth_membership_and_side_effects -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_formal_002_external_body_rejected_without_work_truth_write",
+      "command": "cargo test -q -p work-api tests::tc_work_formal_002_external_body_rejected_without_work_truth_write -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_formal_003_locked_backlog_rejects_new_work_item",
+      "command": "cargo test -q -p work-api tests::tc_work_formal_003_locked_backlog_rejects_new_work_item -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_formal_005_child_create_and_invalid_parent_lifecycle_completion",
+      "command": "cargo test -q -p work-api tests::tc_work_formal_005_child_create_and_invalid_parent_lifecycle_completion -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_promote_001_request_promotion_persists_result_trace_and_outbox",
+      "command": "cargo test -q -p work-api tests::tc_work_promote_001_request_promotion_persists_result_trace_and_outbox -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_promote_002_review_accept_creates_formal_work",
+      "command": "cargo test -q -p work-api tests::tc_work_promote_002_review_accept_creates_formal_work -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_promote_003_review_reject_records_decision_without_work",
+      "command": "cargo test -q -p work-api tests::tc_work_promote_003_review_reject_records_decision_without_work -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_promote_005_review_version_conflict_has_single_winner",
+      "command": "cargo test -q -p work-api tests::tc_work_promote_005_review_version_conflict_has_single_winner -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_dep_001_link_work_dependency_persists_truth_and_side_effects",
+      "command": "cargo test -q -p work-api tests::tc_work_dep_001_link_work_dependency_persists_truth_and_side_effects -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_dep_002_cycle_reject_does_not_write_truth",
+      "command": "cargo test -q -p work-api tests::tc_work_dep_002_cycle_reject_does_not_write_truth -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_dep_003_update_dependency_state_requires_reason_and_evidence",
+      "command": "cargo test -q -p work-api tests::tc_work_dep_003_update_dependency_state_requires_reason_and_evidence -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_dep_004_open_blocker_persists_truth_and_side_effects",
+      "command": "cargo test -q -p work-api tests::tc_work_dep_004_open_blocker_persists_truth_and_side_effects -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_dep_005_resolve_blocker_requires_verified_evidence",
+      "command": "cargo test -q -p work-api tests::tc_work_dep_005_resolve_blocker_requires_verified_evidence -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_iter_001_open_iteration_validates_process_timebox_summary_and_duplicate",
+      "command": "cargo test -q -p work-api tests::tc_work_iter_001_open_iteration_validates_process_timebox_summary_and_duplicate -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_iter_002_commit_scope_marks_root_and_child_work_committed",
+      "command": "cargo test -q -p work-api tests::tc_work_iter_002_commit_scope_marks_root_and_child_work_committed -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_iter_003_update_commitment_rejects_non_member_work_and_updates_state",
+      "command": "cargo test -q -p work-api tests::tc_work_iter_003_update_commitment_rejects_non_member_work_and_updates_state -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_iter_004_lifecycle_validates_reason_shape_and_closes_commitment",
+      "command": "cargo test -q -p work-api tests::tc_work_iter_004_lifecycle_validates_reason_shape_and_closes_commitment -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    },
+    {
+      "package_name": "work-api",
+      "target_kind": "unit-test",
+      "target_name": "src/lib.rs",
+      "test_name": "tests::tc_work_iter_005_start_requires_existing_commitment",
+      "command": "cargo test -q -p work-api tests::tc_work_iter_005_start_requires_existing_commitment -- --exact",
+      "status": "passed",
+      "exit_code": 0
+    }
+  ]
+}

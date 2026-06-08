@@ -1,89 +1,53 @@
+test=tests::tc_work_core_001_create_project_persists_project_backlog_and_side_effects command=cargo test -q -p work-api tests::tc_work_core_001_create_project_persists_project_backlog_and_side_effects -- --exact
 
-running 40 tests
-........................................
-test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.00s
 
+test=tests::tc_work_member_001_assign_project_member_persists_member_snapshot_and_side_effects command=cargo test -q -p work-api tests::tc_work_member_001_assign_project_member_persists_member_snapshot_and_side_effects -- --exact
 
-running 0 tests
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.00s
 
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test=tests::tc_work_formal_001_create_work_item_persists_truth_membership_and_side_effects command=cargo test -q -p work-api tests::tc_work_formal_001_create_work_item_persists_truth_membership_and_side_effects -- --exact
 
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.00s
 
-running 10 tests
-..........
-test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test=tests::tc_work_iter_001_open_iteration_validates_process_timebox_summary_and_duplicate command=cargo test -q -p work-api tests::tc_work_iter_001_open_iteration_validates_process_timebox_summary_and_duplicate -- --exact
 
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.00s
 
-running 7 tests
-.......
-test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test=tests::tc_work_query_007_get_work_trace_page_empty_not_visible command=cargo test -q -p work-api tests::tc_work_query_007_get_work_trace_page_empty_not_visible -- --exact
 
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.00s
 
-running 5 tests
-.....
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test=tests::tc_work_promote_001_request_promotion_persists_result_trace_and_outbox command=cargo test -q -p work-api tests::tc_work_promote_001_request_promotion_persists_result_trace_and_outbox -- --exact
 
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.00s
 
-running 18 tests
-..................
-test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-
-running 10 tests
-..........
-test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
+test=runner_delegates_publish_work_outbox command=cargo test -q -p work-jobs --test outbox runner_delegates_publish_work_outbox -- --exact
 
 running 1 test
 .
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
+test=publish_outbox_success_marks_published_and_saves_job_report command=cargo test -q -p work-application --test outbox publish_outbox_success_marks_published_and_saves_job_report -- --exact
 
-running 3 tests
-...
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
 
+test=refresh_job_marks_repository_returned_affected_views_stale command=cargo test -q -p work-jobs --test ops refresh_job_marks_repository_returned_affected_views_stale -- --exact
 
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s

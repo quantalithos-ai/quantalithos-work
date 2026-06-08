@@ -4,7 +4,7 @@
 - review_version: `rel-20260608-a`
 - review_status: `reviewed`
 - reviewed_by: `agent_reviewed`
-- reviewed_at: `2026-06-08T02:44:35Z`
+- reviewed_at: `2026-06-08T04:26:19Z`
 
 | veto_id | source_refs | status | evidence_refs | defect_refs | reviewer_status | risk_acceptance_allowed | notes |
 |---|---|---|---|---|---|---|---|

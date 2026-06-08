@@ -5,5 +5,5 @@
   "acceptance_root": "reports/acceptance",
   "status": "passed",
   "reason": "paths are run-scoped and do not reference latest",
-  "checked_at": "2026-06-08T02:44:34Z"
+  "checked_at": "2026-06-08T04:24:13Z"
 }

@@ -1,0 +1,29 @@
+test=consume_identity_member_changed_marks_repository_returned_views_stale command=cargo test -q -p work-application --test consumer consume_identity_member_changed_marks_repository_returned_views_stale -- --exact
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s
+
+test=duplicate_identity_event_does_not_repeat_snapshot_or_stale_marker command=cargo test -q -p work-application --test consumer duplicate_identity_event_does_not_repeat_snapshot_or_stale_marker -- --exact
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s
+
+test=publish_outbox_success_marks_published_and_saves_job_report command=cargo test -q -p work-application --test outbox publish_outbox_success_marks_published_and_saves_job_report -- --exact
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+test=publish_outbox_invalid_source_marks_failed_without_partial_publish command=cargo test -q -p work-application --test outbox publish_outbox_invalid_source_marks_failed_without_partial_publish -- --exact
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+test=duplicate_job_replays_stored_report_without_rescanning_or_republishing command=cargo test -q -p work-application --test outbox duplicate_job_replays_stored_report_without_rescanning_or_republishing -- --exact
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s

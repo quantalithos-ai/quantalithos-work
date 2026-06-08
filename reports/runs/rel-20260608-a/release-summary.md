@@ -2,6 +2,9 @@
 
 - run_id: `rel-20260608-a`
 - release_gate_status: `passed`
+- selected_gate_status: `passed`
+- evidence_pack_status: `reviewed`
+- redaction_status: `passed`
 - gate_results_ref: `reports/runs/rel-20260608-a/gate-results.md`
 - evidence_index_ref: `reports/runs/rel-20260608-a/evidence-index.md`
 - redaction_check_ref: `reports/runs/rel-20260608-a/redaction-check.md`

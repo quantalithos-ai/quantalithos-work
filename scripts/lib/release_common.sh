@@ -354,3 +354,30 @@ write_suite_result_json() {
       exit_code: $exit_code
     }' >"${output_path}"
 }
+
+record_suite_command() {
+  local output_path="$1"
+  local suite="$2"
+  local package_name="$3"
+  local target_kind="$4"
+  local target_name="$5"
+  local test_name="$6"
+  local command="$7"
+
+  jq -n \
+    --arg suite "${suite}" \
+    --arg package_name "${package_name}" \
+    --arg target_kind "${target_kind}" \
+    --arg target_name "${target_name}" \
+    --arg test_name "${test_name}" \
+    --arg command "${command}" \
+    '{
+      suite: $suite,
+      package_name: $package_name,
+      target_kind: $target_kind,
+      target_name: $target_name,
+      test_name: $test_name,
+      command: $command
+    }' >"${output_path}"
+  normalize_text_file_eof "${output_path}"
+}

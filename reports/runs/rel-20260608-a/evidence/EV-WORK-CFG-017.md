@@ -8,4 +8,5 @@
 - report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
 - design_contract_refs: `projects/L1-work/04-配置设计.md §8~§12`
 - redaction_status: `passed`
+- defect_refs: ``
 - review_status: `reviewed`
