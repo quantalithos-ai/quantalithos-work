@@ -1,0 +1,3 @@
+run_id=rel-20260608-a
+required_reports=gate-results.md,evidence-index.md,redaction-check.md,release-summary.md
+acceptance_docs=handoff.md,veto-checklist.md,risk-acceptance.md,open-issues.md

@@ -1,0 +1,707 @@
+# Evidence Index
+
+- run_id: `rel-20260608-a`
+
+## EV-WORK-CORE-001
+- test_case_ids: `TC-WORK-CORE-001`
+- acceptance_ids: `AC-WORK-001, AC-WORK-006`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §5~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CORE-002
+- test_case_ids: `TC-WORK-CORE-002`
+- acceptance_ids: `AC-WORK-001, AC-WORK-006`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §5~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CORE-003
+- test_case_ids: `TC-WORK-CORE-003`
+- acceptance_ids: `AC-WORK-001, AC-WORK-006`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §5~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CORE-004
+- test_case_ids: `TC-WORK-CORE-004`
+- acceptance_ids: `AC-WORK-001, AC-WORK-006`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §5~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-MEMBER-001
+- test_case_ids: `TC-WORK-MEMBER-001`
+- acceptance_ids: `AC-WORK-002, AC-WORK-007`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-MEMBER-002
+- test_case_ids: `TC-WORK-MEMBER-002`
+- acceptance_ids: `AC-WORK-002, AC-WORK-007`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-MEMBER-003
+- test_case_ids: `TC-WORK-MEMBER-003`
+- acceptance_ids: `AC-WORK-002, AC-WORK-007`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-MEMBER-004
+- test_case_ids: `TC-WORK-MEMBER-004`
+- acceptance_ids: `AC-WORK-002, AC-WORK-007`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-FORMAL-001
+- test_case_ids: `TC-WORK-FORMAL-001`
+- acceptance_ids: `AC-WORK-003, AC-WORK-008`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-FORMAL-002
+- test_case_ids: `TC-WORK-FORMAL-002`
+- acceptance_ids: `AC-WORK-003, AC-WORK-008`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-FORMAL-003
+- test_case_ids: `TC-WORK-FORMAL-003`
+- acceptance_ids: `AC-WORK-003, AC-WORK-008`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-FORMAL-004
+- test_case_ids: `TC-WORK-FORMAL-004`
+- acceptance_ids: `AC-WORK-003, AC-WORK-008, AC-WORK-020`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§11, projects/L1-work/04-配置设计.md §8~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-FORMAL-005
+- test_case_ids: `TC-WORK-FORMAL-005`
+- acceptance_ids: `AC-WORK-003, AC-WORK-008`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-PROMOTE-001
+- test_case_ids: `TC-WORK-PROMOTE-001`
+- acceptance_ids: `AC-WORK-003, AC-WORK-009`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-PROMOTE-002
+- test_case_ids: `TC-WORK-PROMOTE-002`
+- acceptance_ids: `AC-WORK-003, AC-WORK-009`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-PROMOTE-003
+- test_case_ids: `TC-WORK-PROMOTE-003`
+- acceptance_ids: `AC-WORK-003, AC-WORK-009`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-PROMOTE-004
+- test_case_ids: `TC-WORK-PROMOTE-004`
+- acceptance_ids: `AC-WORK-003, AC-WORK-009, AC-WORK-020`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§12, projects/L1-work/04-配置设计.md §8~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-PROMOTE-005
+- test_case_ids: `TC-WORK-PROMOTE-005`
+- acceptance_ids: `AC-WORK-003, AC-WORK-009, AC-WORK-028`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-DEP-001
+- test_case_ids: `TC-WORK-DEP-001`
+- acceptance_ids: `AC-WORK-010, AC-WORK-027`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-DEP-002
+- test_case_ids: `TC-WORK-DEP-002`
+- acceptance_ids: `AC-WORK-010, AC-WORK-028`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-DEP-003
+- test_case_ids: `TC-WORK-DEP-003`
+- acceptance_ids: `AC-WORK-010, AC-WORK-027`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-DEP-004
+- test_case_ids: `TC-WORK-DEP-004`
+- acceptance_ids: `AC-WORK-010, AC-WORK-027`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-DEP-005
+- test_case_ids: `TC-WORK-DEP-005`
+- acceptance_ids: `AC-WORK-010, AC-WORK-027`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-ITER-001
+- test_case_ids: `TC-WORK-ITER-001`
+- acceptance_ids: `AC-WORK-004, AC-WORK-011`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-ITER-002
+- test_case_ids: `TC-WORK-ITER-002`
+- acceptance_ids: `AC-WORK-004, AC-WORK-011`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-ITER-003
+- test_case_ids: `TC-WORK-ITER-003`
+- acceptance_ids: `AC-WORK-004, AC-WORK-011`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-ITER-004
+- test_case_ids: `TC-WORK-ITER-004`
+- acceptance_ids: `AC-WORK-004, AC-WORK-011`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-ITER-005
+- test_case_ids: `TC-WORK-ITER-005`
+- acceptance_ids: `AC-WORK-004, AC-WORK-011, AC-WORK-028`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §6~§11`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-QUERY-001
+- test_case_ids: `TC-WORK-QUERY-001`
+- acceptance_ids: `AC-WORK-005, AC-WORK-012`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §8~§15`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-QUERY-002
+- test_case_ids: `TC-WORK-QUERY-002`
+- acceptance_ids: `AC-WORK-005, AC-WORK-012`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §8~§15`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-QUERY-003
+- test_case_ids: `TC-WORK-QUERY-003`
+- acceptance_ids: `AC-WORK-005, AC-WORK-012`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §8~§15`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-QUERY-004
+- test_case_ids: `TC-WORK-QUERY-004`
+- acceptance_ids: `AC-WORK-005, AC-WORK-012`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §8~§15`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-QUERY-005
+- test_case_ids: `TC-WORK-QUERY-005`
+- acceptance_ids: `AC-WORK-005, AC-WORK-012`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §8~§15`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-QUERY-006
+- test_case_ids: `TC-WORK-QUERY-006`
+- acceptance_ids: `AC-WORK-005, AC-WORK-012`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §8~§15`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-QUERY-007
+- test_case_ids: `TC-WORK-QUERY-007`
+- acceptance_ids: `AC-WORK-005, AC-WORK-012`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §8~§15`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-QUERY-008
+- test_case_ids: `TC-WORK-QUERY-008`
+- acceptance_ids: `AC-WORK-005, AC-WORK-012`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §8~§15`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-OPS-001
+- test_case_ids: `TC-WORK-OPS-001`
+- acceptance_ids: `AC-WORK-013, AC-WORK-025, AC-WORK-029`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §7~§15`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-OPS-002
+- test_case_ids: `TC-WORK-OPS-002`
+- acceptance_ids: `AC-WORK-013, AC-WORK-025`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §7~§15`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-OPS-003
+- test_case_ids: `TC-WORK-OPS-003`
+- acceptance_ids: `AC-WORK-013, AC-WORK-025`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §7~§15`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-OPS-004
+- test_case_ids: `TC-WORK-OPS-004`
+- acceptance_ids: `AC-WORK-013, AC-WORK-027`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §7~§15`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-OPS-005
+- test_case_ids: `TC-WORK-OPS-005`
+- acceptance_ids: `AC-WORK-013, AC-WORK-025`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §7~§15`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-OPS-006
+- test_case_ids: `TC-WORK-OPS-006`
+- acceptance_ids: `AC-WORK-013, AC-WORK-025`
+- suite: `release-main-smoke`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-main-smoke.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §7~§15`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CFG-001
+- test_case_ids: `TC-WORK-CFG-001`
+- acceptance_ids: `AC-WORK-020, AC-WORK-026`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/04-配置设计.md §5~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CFG-002
+- test_case_ids: `TC-WORK-CFG-002`
+- acceptance_ids: `AC-WORK-020, AC-WORK-026`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/04-配置设计.md §5~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CFG-003
+- test_case_ids: `TC-WORK-CFG-003`
+- acceptance_ids: `AC-WORK-020, AC-WORK-026`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/04-配置设计.md §5~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CFG-004
+- test_case_ids: `TC-WORK-CFG-004`
+- acceptance_ids: `AC-WORK-020, AC-WORK-026`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/04-配置设计.md §5~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CFG-005
+- test_case_ids: `TC-WORK-CFG-005`
+- acceptance_ids: `AC-WORK-023, AC-WORK-029`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/04-配置设计.md §5~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CFG-006
+- test_case_ids: `TC-WORK-CFG-006`
+- acceptance_ids: `AC-WORK-023, AC-WORK-029`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/04-配置设计.md §5~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CFG-007
+- test_case_ids: `TC-WORK-CFG-007`
+- acceptance_ids: `AC-WORK-023, AC-WORK-029`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/04-配置设计.md §5~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CFG-008
+- test_case_ids: `TC-WORK-CFG-008`
+- acceptance_ids: `AC-WORK-023, AC-WORK-029`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/04-配置设计.md §5~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CFG-009
+- test_case_ids: `TC-WORK-CFG-009`
+- acceptance_ids: `AC-WORK-023, AC-WORK-029`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/04-配置设计.md §5~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CFG-010
+- test_case_ids: `TC-WORK-CFG-010`
+- acceptance_ids: `AC-WORK-026`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/04-配置设计.md §8~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CFG-011
+- test_case_ids: `TC-WORK-CFG-011`
+- acceptance_ids: `AC-WORK-026`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/04-配置设计.md §8~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CFG-012
+- test_case_ids: `TC-WORK-CFG-012`
+- acceptance_ids: `AC-WORK-026`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/04-配置设计.md §8~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CFG-013
+- test_case_ids: `TC-WORK-CFG-013`
+- acceptance_ids: `AC-WORK-026`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/04-配置设计.md §8~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CFG-014
+- test_case_ids: `TC-WORK-CFG-014`
+- acceptance_ids: `AC-WORK-026`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/04-配置设计.md §8~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CFG-015
+- test_case_ids: `TC-WORK-CFG-015`
+- acceptance_ids: `AC-WORK-026`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/04-配置设计.md §8~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CFG-016
+- test_case_ids: `TC-WORK-CFG-016`
+- acceptance_ids: `AC-WORK-026`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/04-配置设计.md §8~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-CFG-017
+- test_case_ids: `TC-WORK-CFG-017`
+- acceptance_ids: `AC-WORK-026`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/04-配置设计.md §8~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-NFR-001
+- test_case_ids: `TC-WORK-NFR-001`
+- acceptance_ids: `AC-WORK-024`
+- suite: `release-evidence-pack`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-evidence-pack/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-evidence-pack.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/04-配置设计.md §7~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-NFR-002
+- test_case_ids: `TC-WORK-NFR-002`
+- acceptance_ids: `AC-WORK-025`
+- suite: `release-evidence-pack`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-evidence-pack/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-evidence-pack.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §11~§15`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-NFR-003
+- test_case_ids: `TC-WORK-NFR-003`
+- acceptance_ids: `AC-WORK-026`
+- suite: `release-config-redline`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-config-redline/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-config-redline.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/04-配置设计.md §8~§12`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-NFR-004
+- test_case_ids: `TC-WORK-NFR-004`
+- acceptance_ids: `AC-WORK-028`
+- suite: `release-evidence-pack`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-evidence-pack/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-evidence-pack.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §11~§15`
+- redaction_status: `passed`
+- review_status: `reviewed`
+
+## EV-WORK-NFR-005
+- test_case_ids: `TC-WORK-NFR-005`
+- acceptance_ids: `AC-WORK-029`
+- suite: `release-evidence-pack`
+- run_id: `rel-20260608-a`
+- artifact_refs: `artifacts/test/rel-20260608-a/suites/release-evidence-pack/report.json`
+- report_refs: `reports/runs/rel-20260608-a/release-evidence-pack.md, reports/runs/rel-20260608-a/gate-results.md`
+- design_contract_refs: `projects/L1-work/03-详细设计.md §11~§15`
+- redaction_status: `passed`
+- review_status: `reviewed`

@@ -1,0 +1,4 @@
+config_profile=ci-test
+config_path=config/profiles/ci-test.json
+report_root=reports/runs/rel-20260608-a
+artifact_root=artifacts/test/rel-20260608-a

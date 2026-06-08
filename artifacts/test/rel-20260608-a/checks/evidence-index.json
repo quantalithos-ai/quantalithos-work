@@ -1,0 +1,12 @@
+{
+  "run_id": "rel-20260608-a",
+  "status": "passed",
+  "checked_at": "2026-06-08T02:44:35Z",
+  "entry_count": 64,
+  "required_entries": {
+    "cfg_017_present": true,
+    "nfr_005_present": true,
+    "ops_006_present": true,
+    "required_fields_ok": true
+  }
+}

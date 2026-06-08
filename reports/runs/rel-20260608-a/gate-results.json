@@ -1,0 +1,30 @@
+{
+  "run_id": "rel-20260608-a",
+  "generated_at": "2026-06-08T02:44:34Z",
+  "suites": [
+    {
+      "suite": "release-config-redline",
+      "status": "passed",
+      "reason": "not_applicable",
+      "report_ref": "reports/runs/rel-20260608-a/release-config-redline.md",
+      "artifact_ref": "artifacts/test/rel-20260608-a/suites/release-config-redline/report.json",
+      "exit_code": 0
+    },
+    {
+      "suite": "release-evidence-pack",
+      "status": "passed",
+      "reason": "not_applicable",
+      "report_ref": "reports/runs/rel-20260608-a/release-evidence-pack.md",
+      "artifact_ref": "artifacts/test/rel-20260608-a/suites/release-evidence-pack/report.json",
+      "exit_code": 0
+    },
+    {
+      "suite": "release-main-smoke",
+      "status": "passed",
+      "reason": "not_applicable",
+      "report_ref": "reports/runs/rel-20260608-a/release-main-smoke.md",
+      "artifact_ref": "artifacts/test/rel-20260608-a/suites/release-main-smoke/report.json",
+      "exit_code": 0
+    }
+  ]
+}

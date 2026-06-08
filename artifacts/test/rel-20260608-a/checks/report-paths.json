@@ -1,0 +1,9 @@
+{
+  "run_id": "rel-20260608-a",
+  "artifact_root": "artifacts/test/rel-20260608-a",
+  "report_root": "reports/runs/rel-20260608-a",
+  "acceptance_root": "reports/acceptance",
+  "status": "passed",
+  "reason": "paths are run-scoped and do not reference latest",
+  "checked_at": "2026-06-08T02:44:34Z"
+}

@@ -1,0 +1,27 @@
+{
+  "run_id": "rel-20260608-a",
+  "status": "passed",
+  "checked_at": "2026-06-08T02:44:34Z",
+  "profiles": [
+    {
+      "profile": "local-dev",
+      "fake_marker_required": true,
+      "configured_refs_present": true
+    },
+    {
+      "profile": "ci-test",
+      "fake_marker_required": true,
+      "configured_refs_present": true
+    },
+    {
+      "profile": "integration-like",
+      "fake_marker_required": false,
+      "configured_refs_present": true
+    },
+    {
+      "profile": "operations-replay",
+      "fake_marker_required": true,
+      "configured_refs_present": true
+    }
+  ]
+}
